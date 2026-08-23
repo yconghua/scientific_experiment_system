@@ -8,7 +8,8 @@
 //   新增顶部项 → 往 navTopItems 加一个 { key, title }
 //   新增父项   → 往 navGroups 加一个 { title, children: [...] }
 //   新增子项   → 往对应父项的 children 加一个 { key, title }
-//   key 会同时用作路由 path（如 home → /home、example-11 → /example-11），需保持唯一。
+//   key 会同时用作路由 path（如 home → /home、exp-11 → /exp-11），需保持唯一。
+//   子项 key 统一使用 exp-数字 格式（原示例用的 example-数字 已弃用）。
 
 // 顶部独立导航项（直接跳转，非下拉分组）；数量可自由增减
 export const navTopItems = [
@@ -17,32 +18,31 @@ export const navTopItems = [
 
 export const navGroups = [
   {
-    title: '示例导航栏1',
+    title: '新建项目',
     children: [
-      { key: 'example-11', title: '示例小导航栏11' }
+      { key: 'exp-11', title: '新建项目' },
+      { key: 'exp-12', title: '项目列表' }
     ]
   },
   {
-    title: '示例导航栏2',
+    title: '地图数据导入',
     children: [
-      { key: 'example-12', title: '示例小导航栏12' },
-      { key: 'example-13', title: '示例小导航栏13' },
-      { key: 'example-14', title: '示例小导航栏14' },
-      { key: 'example-15', title: '示例小导航栏15' }
+      { key: 'exp-21', title: 'api导入' },
+      { key: 'exp-22', title: '路网导入' }
     ]
   },
   {
-    title: '示例导航栏3',
+    title: '加载点位数据',
     children: [
-      { key: 'example-16', title: '示例小导航栏16' }
+      { key: 'exp-31', title: '起点坐标数据' },
+      { key: 'exp-32', title: '终点坐标数据' }
     ]
   },
   {
-    title: '示例导航栏4',
+    title: '运行计算',
     children: [
-      { key: 'example-17', title: '示例小导航栏17' },
-      { key: 'example-18', title: '示例小导航栏18' },
-      { key: 'example-19', title: '测试项目' }
+      { key: 'exp-41', title: '计算结果' },
+      { key: 'exp-42', title: '可视化' }
     ]
   }
 ]
