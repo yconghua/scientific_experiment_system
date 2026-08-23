@@ -76,3 +76,25 @@ export function updateProject(payload) {
 export function deleteProject(id) {
   return window.api.project.delete(id)
 }
+
+// 地图数据导入记录（map_data_import：API 导入 / 路网导入 共用）
+export function listMapData(projectId, importType) {
+  return window.api.mapData.list({ projectId, importType })
+}
+
+export function createMapData(payload) {
+  return window.api.mapData.create(payload)
+}
+
+export function updateMapData(payload) {
+  return window.api.mapData.update(payload)
+}
+
+export function deleteMapData(id) {
+  return window.api.mapData.delete(id)
+}
+
+// 选择路网文件（Electron 系统文件框 + 复制到 userData/projects/{项目编号}/）
+export function selectRoadFile(projectNo) {
+  return window.api.file.select(projectNo)
+}

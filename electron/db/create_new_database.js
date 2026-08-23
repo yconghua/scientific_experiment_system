@@ -79,7 +79,76 @@ async function ensureProjectTable(conn) {
   )
 }
 
-// 初始化目标库：库不存在则自动创建，随后建 user 表 + project 表、幂等插入默认管理员
+// 项目地图数据导入表（API 导入 / 路网导入 共用一张表，import_type 区分）
+// 每个项目最多一条导入记录：唯一索引 uk_project_one(project_id, import_type) 兜底，
+// 跨类型互斥由应用层校验；删除为物理删除（删掉后该项目可再导入新的）。
+const MAP_DATA_IMPORT_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS \`map_data_import\` (
+    \`id\`                 BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    \`project_id\`         BIGINT UNSIGNED NOT NULL                COMMENT '所属项目 ID（关联 project.id）',
+    \`project_no\`         VARCHAR(20)     NOT NULL                COMMENT '项目编号（冗余，列表直接显示）',
+    \`import_type\`        VARCHAR(10)     NOT NULL                COMMENT '导入方式：api=API导入 / road=路网导入',
+    \`api_platform\`       VARCHAR(50)     NULL                    COMMENT 'API 提供平台（api 类型必填），如 百度地图/高德地图',
+    \`api_key\`            VARCHAR(100)    NULL                    COMMENT 'API Key（api 类型必填），存明文',
+    \`api_url\`            VARCHAR(500)    NULL                    COMMENT 'API 网址（api 类型必填）',
+    \`road_file_name\`     VARCHAR(255)    NULL                    COMMENT '路网文件名（road 类型必填）',
+    \`road_file_path\`     VARCHAR(500)    NULL                    COMMENT '路网文件原始位置（用户选择时的路径）',
+    \`road_file_copy_path\` VARCHAR(500)   NULL                    COMMENT '路网文件复制后的路径（userData/projects/{项目编号}/ 下）',
+    \`created_by\`         VARCHAR(50)     NOT NULL                COMMENT '创建人账号（当前登录用户 username）',
+    \`created_at\`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    \`updated_at\`         DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    \`is_deleted\`         TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除标记：0 正常 / 1 已删除',
+    PRIMARY KEY (\`id\`),
+    UNIQUE KEY \`uk_project_one\` (\`project_id\`, \`import_type\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='项目地图数据导入表'
+`
+
+// 确保 map_data_import 表存在（幂等；存量库补建、补列，并把普通索引升级为唯一索引）
+async function ensureMapDataImportTable(conn) {
+  await conn.query(MAP_DATA_IMPORT_TABLE_SQL)
+  await ensureColumn(
+    conn,
+    'map_data_import',
+    'road_file_copy_path',
+    '`road_file_copy_path` VARCHAR(500) NULL COMMENT \'路网文件复制后的路径（userData/projects/{项目编号}/ 下）\''
+  )
+  await ensureColumn(
+    conn,
+    'map_data_import',
+    'api_url',
+    '`api_url` VARCHAR(500) NULL COMMENT \'API 网址（api 类型必填）\''
+  )
+  await ensureMapDataImportUnique(conn)
+}
+
+// 存量库升级：保证 (project_id, import_type) 唯一（每个项目最多一条导入记录）。
+// 旧表是普通索引且可能有多条/软删除残留，先清理再重建唯一索引（幂等，已有唯一索引则跳过）。
+async function ensureMapDataImportUnique(conn) {
+  const [rows] = await conn.query(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'map_data_import' AND INDEX_NAME = 'uk_project_one'`
+  )
+  if (rows[0] && Number(rows[0].c) > 0) return // 已是唯一索引
+  // 1) 清理历史软删除残留（新规则下删除改为物理删除）
+  await conn.query('DELETE FROM `map_data_import` WHERE is_deleted = 1')
+  // 2) 每个 (project_id, import_type) 只保留最新一条，其余物理删除
+  await conn.query(
+    `DELETE d FROM \`map_data_import\` d
+       JOIN \`map_data_import\` k
+         ON d.project_id = k.project_id AND d.import_type = k.import_type AND k.id > d.id`
+  )
+  // 3) 移除旧普通索引（若存在），加唯一索引
+  const [idxRows] = await conn.query(
+    `SELECT COUNT(*) AS c FROM information_schema.STATISTICS
+      WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'map_data_import' AND INDEX_NAME = 'idx_project_type'`
+  )
+  if (idxRows[0] && Number(idxRows[0].c) > 0) {
+    await conn.query('ALTER TABLE `map_data_import` DROP INDEX `idx_project_type`')
+  }
+  await conn.query('ALTER TABLE `map_data_import` ADD UNIQUE KEY `uk_project_one` (`project_id`, `import_type`)')
+}
+
+// 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import 表、幂等插入默认管理员
 async function initDatabase({ host, port, user, password, database }) {
   // 先连 MySQL 服务（不指定库），用于建库
   const conn = await mysql.createConnection({ host, port, user, password })
@@ -95,6 +164,9 @@ async function initDatabase({ host, port, user, password, database }) {
     // 科研项目表
     await ensureProjectTable(conn)
 
+    // 项目地图数据导入表
+    await ensureMapDataImportTable(conn)
+
     // 幂等插入默认管理员
     await conn.query(
       `INSERT INTO \`user\` (\`username\`, \`password\`, \`role\`)
@@ -107,4 +179,4 @@ async function initDatabase({ host, port, user, password, database }) {
   }
 }
 
-module.exports = { ADMIN_DEFAULT, initDatabase, ensureProjectTable }
+module.exports = { ADMIN_DEFAULT, initDatabase, ensureProjectTable, ensureMapDataImportTable }

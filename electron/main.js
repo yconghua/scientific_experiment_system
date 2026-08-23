@@ -9,7 +9,7 @@
  * 渲染层（Vue3）通过 preload 暴露的 window.api 与主进程通信，
  * 页面脚本拿不到 Node 能力（nodeIntegration:false + contextIsolation:true）。
  */
-const { app, BrowserWindow, ipcMain, Menu } = require('electron')
+const { app, BrowserWindow, ipcMain, Menu, dialog } = require('electron')
 const path = require('node:path')
 const fs = require('node:fs')
 const mysql = require('mysql2/promise')
@@ -19,7 +19,7 @@ const appPkg = require('../package.json')
 // 默认连接清单（阿里云预设）抽到独立文件，便于不改 main.js 主体即可调整预设
 const { defaultConnections } = require('./db/database_default_connections')
 // 数据库初始化公共模块（建库 + user 表 + 默认管理员），供「添加新数据库」自动初始化
-const { initDatabase, ensureProjectTable } = require('./db/create_new_database')
+const { initDatabase, ensureProjectTable, ensureMapDataImportTable } = require('./db/create_new_database')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -512,6 +512,230 @@ ipcMain.handle('project:delete', async (_evt, { id }) => {
   }
 })
 
+// -------------------- IPC：地图数据导入记录（map_data_import 表） --------------------
+// 权限：仅操作「当前用户创建的项目 / 记录」（created_by 服务端注入，前端不可伪造）。
+// 一个项目最多一条导入记录（API 或路网二选一）：应用层校验 + 数据库唯一索引 uk_project_one 双重兜底。
+// 编辑时 import_type 不可修改；删除为物理删除，删掉后该项目可重新导入。
+
+// 列表：查某项目某类型的导入记录（未删除 + 当前用户）
+ipcMain.handle('mapData:list', async (_evt, { projectId, importType }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectId || !importType) return { success: false, message: '缺少查询条件' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      `SELECT id, project_id, project_no, import_type,
+              api_platform, api_key, api_url, road_file_name, road_file_path, road_file_copy_path,
+              created_by, created_at, updated_at
+         FROM \`map_data_import\`
+        WHERE is_deleted = 0 AND project_id = ? AND import_type = ? AND created_by = ?
+        ORDER BY id DESC`,
+      [projectId, importType, currentUser.username]
+    )
+    return { success: true, records: rows }
+  } catch (err) {
+    console.error('[mapData:list] 数据库异常:', err)
+    return { success: false, message: '读取导入记录失败' }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 新增导入记录
+ipcMain.handle('mapData:create', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const projectId = p.project_id
+  const importType = p.import_type
+  if (!projectId || !importType) return { success: false, message: '缺少项目或导入方式' }
+  if (importType !== 'api' && importType !== 'road') return { success: false, message: '导入方式不合法' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    // 1) 项目必须存在、未删除、且属于当前用户
+    const [projRows] = await conn.execute(
+      'SELECT id, project_no FROM `project` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, currentUser.username]
+    )
+    if (projRows.length === 0) return { success: false, message: '项目不存在或无权操作' }
+    // 2) 每个项目最多一条导入记录：已有任意类型记录则拒绝（数据库唯一索引兜底）
+    const [exRows] = await conn.execute(
+      'SELECT id, import_type FROM `map_data_import` WHERE project_id = ? AND is_deleted = 0',
+      [projectId]
+    )
+    if (exRows.length > 0) {
+      const existed = exRows[0].import_type
+      return {
+        success: false,
+        message:
+          existed === importType
+            ? (importType === 'api' ? '该项目已有 API 导入记录，不能重复添加' : '该项目已有路网导入记录，不能重复添加')
+            : (importType === 'api' ? '该项目已使用路网导入，不能同时使用 API 导入' : '该项目已使用 API 导入，不能同时使用路网导入')
+      }
+    }
+    // 3) 按类型校验必填
+    let apiPlatform = '', apiKey = '', apiUrl = '', roadFileName = '', roadFilePath = '', roadFileCopyPath = ''
+    if (importType === 'api') {
+      apiPlatform = (p.api_platform || '').trim()
+      apiKey = (p.api_key || '').trim()
+      apiUrl = (p.api_url || '').trim()
+      if (!apiPlatform) return { success: false, message: '请填写 API 提供平台' }
+      if (!apiKey) return { success: false, message: '请填写 API Key' }
+      if (apiKey.length > 100) return { success: false, message: 'API Key 长度不能超过 100' }
+      if (!apiUrl) return { success: false, message: '请填写 API 网址' }
+      if (apiUrl.length > 500) return { success: false, message: 'API 网址长度不能超过 500' }
+    } else {
+      roadFileName = (p.road_file_name || '').trim()
+      roadFilePath = (p.road_file_path || '').trim()
+      roadFileCopyPath = (p.road_file_copy_path || '').trim()
+      if (!roadFileName || !roadFilePath) return { success: false, message: '请选择路网文件' }
+    }
+    await conn.execute(
+      `INSERT INTO \`map_data_import\`
+        (\`project_id\`, \`project_no\`, \`import_type\`, \`api_platform\`, \`api_key\`, \`api_url\`,
+         \`road_file_name\`, \`road_file_path\`, \`road_file_copy_path\`, \`created_by\`)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectId,
+        projRows[0].project_no,
+        importType,
+        apiPlatform || null,
+        apiKey || null,
+        apiUrl || null,
+        roadFileName || null,
+        roadFilePath || null,
+        roadFileCopyPath || null,
+        currentUser.username
+      ]
+    )
+    return { success: true, message: '导入记录创建成功' }
+  } catch (err) {
+    console.error('[mapData:create] 数据库异常:', err)
+    return { success: false, message: '创建失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 更新导入记录（import_type 不可修改，只更新原类型下的字段）
+ipcMain.handle('mapData:update', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const id = p.id
+  if (!id) return { success: false, message: '缺少记录 ID' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      'SELECT id, import_type FROM `map_data_import` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [id, currentUser.username]
+    )
+    if (rows.length === 0) return { success: false, message: '记录不存在或已删除' }
+    const importType = rows[0].import_type
+    if (importType === 'api') {
+      const apiPlatform = (p.api_platform || '').trim()
+      const apiKey = (p.api_key || '').trim()
+      const apiUrl = (p.api_url || '').trim()
+      if (!apiPlatform) return { success: false, message: '请填写 API 提供平台' }
+      if (!apiKey) return { success: false, message: '请填写 API Key' }
+      if (apiKey.length > 100) return { success: false, message: 'API Key 长度不能超过 100' }
+      if (!apiUrl) return { success: false, message: '请填写 API 网址' }
+      if (apiUrl.length > 500) return { success: false, message: 'API 网址长度不能超过 500' }
+      await conn.execute(
+        'UPDATE `map_data_import` SET `api_platform` = ?, `api_key` = ?, `api_url` = ? WHERE id = ?',
+        [apiPlatform, apiKey, apiUrl, id]
+      )
+    } else {
+      const roadFileName = (p.road_file_name || '').trim()
+      const roadFilePath = (p.road_file_path || '').trim()
+      const roadFileCopyPath = (p.road_file_copy_path || '').trim()
+      if (!roadFileName || !roadFilePath) return { success: false, message: '请选择路网文件' }
+      await conn.execute(
+        'UPDATE `map_data_import` SET `road_file_name` = ?, `road_file_path` = ?, `road_file_copy_path` = ? WHERE id = ?',
+        [roadFileName, roadFilePath, roadFileCopyPath, id]
+      )
+    }
+    return { success: true, message: '导入记录已更新' }
+  } catch (err) {
+    console.error('[mapData:update] 数据库异常:', err)
+    return { success: false, message: '更新失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 删除导入记录（物理删除：每个项目最多一条记录，删掉后该项目可再导入）
+ipcMain.handle('mapData:delete', async (_evt, { id }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!id) return { success: false, message: '缺少记录 ID' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      'SELECT id FROM `map_data_import` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [id, currentUser.username]
+    )
+    if (rows.length === 0) return { success: false, message: '记录不存在或已删除' }
+    await conn.execute('DELETE FROM `map_data_import` WHERE id = ?', [id])
+    return { success: true, message: '导入记录已删除' }
+  } catch (err) {
+    console.error('[mapData:delete] 数据库异常:', err)
+    return { success: false, message: '删除失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：选择路网文件（弹出系统文件框 + 复制到项目目录） --------------------
+// 选中后把文件复制到 userData/projects/{项目编号}/ 下；重名统一改名「原名_YYYYMMDD_HHMM.ext」，
+// 仍冲突则追加序号，不覆盖原文件。复制路径入库（前端不展示）。
+function pad2(n) {
+  return String(n).padStart(2, '0')
+}
+function fileStamp(now) {
+  const d = now || new Date()
+  return `${d.getFullYear()}${pad2(d.getMonth() + 1)}${pad2(d.getDate())}_${pad2(d.getHours())}${pad2(d.getMinutes())}`
+}
+ipcMain.handle('dialog:select-file', async (_evt, { projectNo }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectNo) return { success: false, message: '请先选择项目' }
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择路网文件',
+    properties: ['openFile'],
+    filters: [
+      { name: '路网文件', extensions: ['shp', 'osm', 'json', 'geojson', 'csv', 'txt', 'xml'] },
+      { name: '所有文件', extensions: ['*'] }
+    ]
+  })
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { success: false, canceled: true, message: '已取消选择' }
+  }
+  const srcPath = result.filePaths[0]
+  const srcName = path.basename(srcPath)
+  const ext = path.extname(srcName)
+  const base = path.basename(srcName, ext)
+  const destDir = path.join(app.getPath('userData'), 'projects', projectNo)
+  try {
+    await fs.promises.mkdir(destDir, { recursive: true })
+    // 重名统一改名：原名_YYYYMMDD_HHMM.ext；仍存在则追加序号
+    let destName = `${base}_${fileStamp()}${ext}`
+    let destPath = path.join(destDir, destName)
+    let n = 1
+    while (fs.existsSync(destPath)) {
+      destName = `${base}_${fileStamp()}_${n}${ext}`
+      destPath = path.join(destDir, destName)
+      n++
+    }
+    await fs.promises.copyFile(srcPath, destPath)
+    return { success: true, canceled: false, path: srcPath, name: srcName, copyPath: destPath }
+  } catch (err) {
+    console.error('[dialog:select-file] 文件复制失败:', err)
+    return { success: false, canceled: false, message: '文件复制失败：' + (err && err.message ? err.message : '请稍后重试') }
+  }
+})
+
 // -------------------- IPC：系统管理（仅管理员可用） --------------------
 // 系统名称 / 版本号：来自 package.json，写活不硬编码
 ipcMain.handle('sys:info', async () => {
@@ -596,8 +820,9 @@ async function ensureActiveDbTables() {
   try {
     conn = await mysql.createConnection(activeDbConfig)
     await ensureProjectTable(conn)
+    await ensureMapDataImportTable(conn)
   } catch (e) {
-    console.error('[ensureActiveDbTables] project 表确保失败（请检查数据库连接）：', e)
+    console.error('[ensureActiveDbTables] 表确保失败（请检查数据库连接）：', e)
   } finally {
     if (conn) await conn.end().catch(() => {})
   }
