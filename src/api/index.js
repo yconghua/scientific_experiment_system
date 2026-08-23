@@ -98,3 +98,25 @@ export function deleteMapData(id) {
 export function selectRoadFile(projectNo) {
   return window.api.file.select(projectNo)
 }
+
+// 坐标数据（coord_data：起点/终点，txt/csv/excel 文件解析入库）
+export function listCoordData(projectId, pointType) {
+  return window.api.coord.list({ projectId, pointType })
+}
+
+export function createCoordData(payload) {
+  return window.api.coord.create(payload)
+}
+
+export function updateCoordData(payload) {
+  return window.api.coord.update(payload)
+}
+
+export function deleteCoordData(id) {
+  return window.api.coord.delete(id)
+}
+
+// 选择坐标数据文件（只返回路径与文件名，不复制）
+export function pickFile() {
+  return window.api.file.pick()
+}

@@ -39,7 +39,14 @@ contextBridge.exposeInMainWorld('api', {
     update: (payload) => ipcRenderer.invoke('mapData:update', payload),
     delete: (id) => ipcRenderer.invoke('mapData:delete', { id })
   },
+  coord: {
+    list: (payload) => ipcRenderer.invoke('coord:list', payload),
+    create: (payload) => ipcRenderer.invoke('coord:create', payload),
+    update: (payload) => ipcRenderer.invoke('coord:update', payload),
+    delete: (id) => ipcRenderer.invoke('coord:delete', { id })
+  },
   file: {
-    select: (projectNo) => ipcRenderer.invoke('dialog:select-file', { projectNo })
+    select: (projectNo) => ipcRenderer.invoke('dialog:select-file', { projectNo }),
+    pick: () => ipcRenderer.invoke('dialog:pick-file')
   }
 })

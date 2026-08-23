@@ -148,7 +148,32 @@ async function ensureMapDataImportUnique(conn) {
   await conn.query('ALTER TABLE `map_data_import` ADD UNIQUE KEY `uk_project_one` (`project_id`, `import_type`)')
 }
 
-// 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import 表、幂等插入默认管理员
+// 坐标数据表（起点 / 终点 共用一张表，point_type 区分）
+// 数据来自 txt/csv/excel 文件解析，每条记录 = 文件中的一个点。
+const COORD_DATA_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS \`coord_data\` (
+    \`id\`         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    \`project_id\` BIGINT UNSIGNED NOT NULL                COMMENT '所属项目 ID（关联 project.id）',
+    \`project_no\` VARCHAR(20)     NOT NULL                COMMENT '项目编号（冗余，列表直接显示）',
+    \`point_type\` VARCHAR(10)     NOT NULL                COMMENT '数据类型：start=起点 / end=终点',
+    \`sort_no\`    INT UNSIGNED    NULL                    COMMENT '文件内序号（表头 No 列）',
+    \`point_name\` VARCHAR(100)    NULL                    COMMENT '点名称（表头 Name 列）',
+    \`longitude\`  DECIMAL(10,6)   NOT NULL                COMMENT '经度',
+    \`latitude\`   DECIMAL(10,6)   NOT NULL                COMMENT '纬度',
+    \`created_by\` VARCHAR(50)     NOT NULL                COMMENT '创建人账号（当前登录用户 username）',
+    \`created_at\` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    \`updated_at\` DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_project_type\` (\`project_id\`, \`point_type\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='坐标数据表（起点/终点）'
+`
+
+// 确保 coord_data 表存在（幂等，供「启动时补齐存量库」复用）
+async function ensureCoordDataTable(conn) {
+  await conn.query(COORD_DATA_TABLE_SQL)
+}
+
+// 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import / coord_data 表、幂等插入默认管理员
 async function initDatabase({ host, port, user, password, database }) {
   // 先连 MySQL 服务（不指定库），用于建库
   const conn = await mysql.createConnection({ host, port, user, password })
@@ -167,6 +192,9 @@ async function initDatabase({ host, port, user, password, database }) {
     // 项目地图数据导入表
     await ensureMapDataImportTable(conn)
 
+    // 坐标数据表（起点/终点）
+    await ensureCoordDataTable(conn)
+
     // 幂等插入默认管理员
     await conn.query(
       `INSERT INTO \`user\` (\`username\`, \`password\`, \`role\`)
@@ -179,4 +207,10 @@ async function initDatabase({ host, port, user, password, database }) {
   }
 }
 
-module.exports = { ADMIN_DEFAULT, initDatabase, ensureProjectTable, ensureMapDataImportTable }
+module.exports = {
+  ADMIN_DEFAULT,
+  initDatabase,
+  ensureProjectTable,
+  ensureMapDataImportTable,
+  ensureCoordDataTable
+}

@@ -19,7 +19,9 @@ const appPkg = require('../package.json')
 // 默认连接清单（阿里云预设）抽到独立文件，便于不改 main.js 主体即可调整预设
 const { defaultConnections } = require('./db/database_default_connections')
 // 数据库初始化公共模块（建库 + user 表 + 默认管理员），供「添加新数据库」自动初始化
-const { initDatabase, ensureProjectTable, ensureMapDataImportTable } = require('./db/create_new_database')
+const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordDataTable } = require('./db/create_new_database')
+// 解析 excel（.xls/.xlsx）坐标数据文件用
+const XLSX = require('xlsx')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -736,6 +738,240 @@ ipcMain.handle('dialog:select-file', async (_evt, { projectNo }) => {
   }
 })
 
+// -------------------- IPC：坐标数据（coord_data 表：起点 / 终点） --------------------
+// 数据来源：txt / csv / excel 文件，提交时由主进程读取并解析成行，逐条入库。
+// 表头约定：No(序号) / Name(点名称) / Longitude(经度) / Latitude(纬度)，大小写不敏感并兼容变体与中文。
+
+// 表头识别：返回 { noIdx, nameIdx, lngIdx, latIdx }；缺经度/纬度列则返回 null
+function detectCoordHeader(headerCells) {
+  const norm = (s) => String(s == null ? '' : s).trim().toLowerCase()
+  let noIdx = -1
+  let nameIdx = -1
+  let lngIdx = -1
+  let latIdx = -1
+  headerCells.forEach((cell, i) => {
+    const h = norm(cell)
+    if (h === 'no' || h === 'num' || h === 'number' || h === 'id' || h === '序号') noIdx = i
+    if (h === 'name' || h === 'pointname' || h === '名称' || h === '点名称') nameIdx = i
+    if (h === 'longitude' || h === 'lng' || h === 'lon' || h === '经度') lngIdx = i
+    if (h === 'latitude' || h === 'lat' || h === '纬度') latIdx = i
+  })
+  if (lngIdx < 0 || latIdx < 0) return null
+  return { noIdx, nameIdx, lngIdx, latIdx }
+}
+
+// 解析一行单元格为坐标记录；ok=false 表示该行非法（坐标缺失/越界）
+function parseCoordRow(cells, idx) {
+  const num = (v) => {
+    if (v == null || String(v).trim() === '') return null
+    const n = Number(String(v).trim())
+    return Number.isFinite(n) ? n : null
+  }
+  const lng = num(cells[idx.lngIdx])
+  const lat = num(cells[idx.latIdx])
+  if (lng === null || lat === null || lng < -180 || lng > 180 || lat < -90 || lat > 90) {
+    return { ok: false }
+  }
+  let sortNo = null
+  if (idx.noIdx >= 0) {
+    const n = num(cells[idx.noIdx])
+    if (n !== null) sortNo = Math.floor(n)
+  }
+  const name = idx.nameIdx >= 0 ? String(cells[idx.nameIdx] == null ? '' : cells[idx.nameIdx]).trim().slice(0, 100) : ''
+  return { ok: true, sortNo, name, lng, lat }
+}
+
+// 文本（txt/csv）解析为二维矩阵：去掉 BOM/空行，第一行作为表头；分隔符按表头是否含逗号判断
+function textToMatrix(content) {
+  const text = String(content || '').replace(/^\uFEFF/, '')
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean)
+  if (!lines.length) return []
+  const sep = lines[0].includes(',') ? ',' : '\t'
+  return lines.map((l) => l.split(sep).map((c) => c.trim()))
+}
+
+// excel 解析为二维矩阵（取第一个工作表）
+function excelToMatrix(filePath) {
+  const wb = XLSX.readFile(filePath)
+  const ws = wb.Sheets[wb.SheetNames[0]]
+  if (!ws) return []
+  return XLSX.utils.sheet_to_json(ws, { header: 1, defval: '' })
+}
+
+// 列表
+ipcMain.handle('coord:list', async (_evt, { projectId, pointType }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectId || !pointType) return { success: false, message: '缺少查询条件' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      `SELECT id, project_id, project_no, point_type, sort_no, point_name,
+              longitude, latitude, created_by, created_at, updated_at
+         FROM \`coord_data\`
+        WHERE project_id = ? AND point_type = ? AND created_by = ?
+        ORDER BY id DESC`,
+      [projectId, pointType, currentUser.username]
+    )
+    return { success: true, records: rows }
+  } catch (err) {
+    console.error('[coord:list] 数据库异常:', err)
+    return { success: false, message: '读取坐标数据失败' }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 导入：读取文件 → 解析 → 事务批量入库
+ipcMain.handle('coord:create', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const projectId = p.project_id
+  const pointType = p.point_type
+  const filePath = (p.file_path || '').trim()
+  if (!projectId || !pointType) return { success: false, message: '缺少项目或数据类型' }
+  if (pointType !== 'start' && pointType !== 'end') return { success: false, message: '数据类型不合法' }
+  if (!filePath) return { success: false, message: '请先选择文件' }
+  const ext = path.extname(filePath).toLowerCase()
+  if (!['.txt', '.csv', '.xls', '.xlsx'].includes(ext)) {
+    return { success: false, message: '仅支持 txt / csv / excel 三种文件类型' }
+  }
+  if (!fs.existsSync(filePath)) return { success: false, message: '文件不存在或已被移动，请重新选择' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    // 项目必须存在、未删除、且属于当前用户
+    const [projRows] = await conn.execute(
+      'SELECT id, project_no FROM `project` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, currentUser.username]
+    )
+    if (projRows.length === 0) return { success: false, message: '项目不存在或无权操作' }
+
+    // 读取并解析成矩阵（第一行为表头）
+    let matrix
+    if (ext === '.xls' || ext === '.xlsx') {
+      matrix = excelToMatrix(filePath)
+    } else {
+      matrix = textToMatrix(fs.readFileSync(filePath, 'utf8'))
+    }
+    if (matrix.length < 2) return { success: false, message: '文件没有数据行' }
+
+    const idx = detectCoordHeader(matrix[0])
+    if (!idx) {
+      return { success: false, message: '文件表头格式不正确，请参考示例文件（No,Name,Longitude,Latitude）' }
+    }
+
+    // 逐行解析校验
+    const rowsToInsert = []
+    let skipped = 0
+    for (let i = 1; i < matrix.length; i++) {
+      const r = parseCoordRow(matrix[i], idx)
+      if (r.ok) rowsToInsert.push(r)
+      else skipped++
+    }
+    if (rowsToInsert.length === 0) {
+      return { success: false, message: '没有解析出有效数据（跳过 ' + skipped + ' 行非法数据）' }
+    }
+
+    await conn.beginTransaction()
+    for (const r of rowsToInsert) {
+      await conn.execute(
+        `INSERT INTO \`coord_data\`
+          (\`project_id\`, \`project_no\`, \`point_type\`, \`sort_no\`, \`point_name\`, \`longitude\`, \`latitude\`, \`created_by\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [projectId, projRows[0].project_no, pointType, r.sortNo, r.name || null, r.lng, r.lat, currentUser.username]
+      )
+    }
+    await conn.commit()
+    return {
+      success: true,
+      message: '导入成功：新增 ' + rowsToInsert.length + ' 条' + (skipped ? '，跳过 ' + skipped + ' 行非法数据' : ''),
+      inserted: rowsToInsert.length,
+      skipped
+    }
+  } catch (err) {
+    console.error('[coord:create] 数据库异常:', err)
+    if (conn) await conn.rollback().catch(() => {})
+    return { success: false, message: '导入失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 更新单行
+ipcMain.handle('coord:update', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const id = p.id
+  if (!id) return { success: false, message: '缺少记录 ID' }
+  const lng = Number(p.longitude)
+  const lat = Number(p.latitude)
+  if (!Number.isFinite(lng) || lng < -180 || lng > 180) return { success: false, message: '经度不合法（范围 -180~180）' }
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90) return { success: false, message: '纬度不合法（范围 -90~90）' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      'SELECT id FROM `coord_data` WHERE id = ? AND created_by = ?',
+      [id, currentUser.username]
+    )
+    if (rows.length === 0) return { success: false, message: '记录不存在或已删除' }
+    const sortNo = p.sort_no === '' || p.sort_no == null ? null : Math.floor(Number(p.sort_no))
+    const name = (p.point_name || '').trim().slice(0, 100)
+    await conn.execute(
+      'UPDATE `coord_data` SET `sort_no` = ?, `point_name` = ?, `longitude` = ?, `latitude` = ? WHERE id = ?',
+      [sortNo, name || null, lng, lat, id]
+    )
+    return { success: true, message: '坐标数据已更新' }
+  } catch (err) {
+    console.error('[coord:update] 数据库异常:', err)
+    return { success: false, message: '更新失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 删除单行（物理删除）
+ipcMain.handle('coord:delete', async (_evt, { id }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!id) return { success: false, message: '缺少记录 ID' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      'SELECT id FROM `coord_data` WHERE id = ? AND created_by = ?',
+      [id, currentUser.username]
+    )
+    if (rows.length === 0) return { success: false, message: '记录不存在或已删除' }
+    await conn.execute('DELETE FROM `coord_data` WHERE id = ?', [id])
+    return { success: true, message: '坐标数据已删除' }
+  } catch (err) {
+    console.error('[coord:delete] 数据库异常:', err)
+    return { success: false, message: '删除失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：选择坐标数据文件（只返回路径，不复制） --------------------
+ipcMain.handle('dialog:pick-file', async () => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const win = BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0]
+  const result = await dialog.showOpenDialog(win, {
+    title: '选择坐标数据文件',
+    properties: ['openFile'],
+    filters: [
+      { name: '数据文件（txt/csv/excel）', extensions: ['txt', 'csv', 'xls', 'xlsx'] },
+      { name: '所有文件', extensions: ['*'] }
+    ]
+  })
+  if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
+    return { success: false, canceled: true, message: '已取消选择' }
+  }
+  const srcPath = result.filePaths[0]
+  return { success: true, canceled: false, path: srcPath, name: path.basename(srcPath) }
+})
+
 // -------------------- IPC：系统管理（仅管理员可用） --------------------
 // 系统名称 / 版本号：来自 package.json，写活不硬编码
 ipcMain.handle('sys:info', async () => {
@@ -821,6 +1057,7 @@ async function ensureActiveDbTables() {
     conn = await mysql.createConnection(activeDbConfig)
     await ensureProjectTable(conn)
     await ensureMapDataImportTable(conn)
+    await ensureCoordDataTable(conn)
   } catch (e) {
     console.error('[ensureActiveDbTables] 表确保失败（请检查数据库连接）：', e)
   } finally {
