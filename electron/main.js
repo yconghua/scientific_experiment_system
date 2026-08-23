@@ -426,7 +426,7 @@ ipcMain.handle('project:create', async (_evt, payload) => {
   }
 })
 
-// -------------------- IPC：项目列表 --------------------
+// -------------------- IPC：项目列表（仅当前登录用户创建的项目） --------------------
 ipcMain.handle('project:list', async () => {
   if (!currentUser) return { success: false, message: '未登录，请重新登录' }
   let conn
@@ -437,7 +437,10 @@ ipcMain.handle('project:list', async () => {
               province_code, province_name, city_code, city_name,
               district_code, district_name,
               remark, created_by, created_at, updated_at
-         FROM \`project\` WHERE is_deleted = 0 ORDER BY id DESC`
+         FROM \`project\`
+        WHERE is_deleted = 0 AND created_by = ?
+        ORDER BY id DESC`,
+      [currentUser.username]
     )
     return { success: true, projects: rows }
   } catch (err) {
