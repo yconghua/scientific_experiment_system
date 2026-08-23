@@ -12,7 +12,7 @@ function defaultConnections() {
         port: 3306,
         user: 'alyycqconghuastudio',
         password: 'Aa@147369',
-        database: 'conghua_studio_database'
+        database: 'scientific_experiment_system_database'
       }
     ]
   }

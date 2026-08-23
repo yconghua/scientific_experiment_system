@@ -235,7 +235,7 @@
           </div>
           <div class="form-row">
             <label class="field-label">数据库名 *</label>
-            <input v-model="addForm.database" class="field-input" type="text" placeholder="如：conghua_studio" />
+            <input v-model="addForm.database" class="field-input" type="text" placeholder="如：scientific_experiment_system_database" />
           </div>
           <p v-if="addDbMsg" class="msg" :class="addDbOk ? 'ok' : 'err'">{{ addDbMsg }}</p>
         </div>
