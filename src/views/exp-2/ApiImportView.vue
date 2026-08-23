@@ -17,6 +17,9 @@
       </span>
     </div>
 
+    <!-- 互斥提示：该项目已用路网导入时一直红色显示 -->
+    <p v-if="mutexWarn" class="mutex-warn">{{ mutexWarn }}</p>
+
     <!-- 表单 -->
     <form v-if="selectedProjectId" class="form" @submit.prevent="onSubmit">
       <div class="form-row">
@@ -230,11 +233,27 @@ async function loadRecords() {
   }
 }
 
-// 切换项目：重置表单并刷新表格
+// 切换项目：重置表单、刷新表格、并检查该项目是否已用路网导入（互斥提示）
 watch(selectedProjectId, () => {
   onReset()
   loadRecords()
+  checkMutex()
 })
+
+// 互斥提示：该项目若已存在路网导入记录，选择该项目后一直红色显示（切换项目时重新检查）
+const mutexWarn = ref('')
+async function checkMutex() {
+  mutexWarn.value = ''
+  if (!selectedProjectId.value) return
+  try {
+    const res = await listMapData(selectedProjectId.value, 'road')
+    if (res && res.success && (res.records || []).length > 0) {
+      mutexWarn.value = '该项目已使用路网导入，不能同时使用 API 导入'
+    }
+  } catch (e) {
+    // 检查失败不阻塞页面，忽略
+  }
+}
 
 function onReset() {
   apiForm.platform = ''
@@ -433,6 +452,13 @@ onMounted(() => {
 }
 .pick-current b {
   color: #0d80e0;
+}
+/* 互斥提示：红色字体突出 */
+.mutex-warn {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #f53f3f;
 }
 
 /* 表单 */
