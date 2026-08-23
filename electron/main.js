@@ -19,7 +19,7 @@ const appPkg = require('../package.json')
 // 默认连接清单（阿里云预设）抽到独立文件，便于不改 main.js 主体即可调整预设
 const { defaultConnections } = require('./db/database_default_connections')
 // 数据库初始化公共模块（建库 + user 表 + 默认管理员），供「添加新数据库」自动初始化
-const { initDatabase } = require('./db/create_new_database')
+const { initDatabase, ensureProjectTable } = require('./db/create_new_database')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -378,6 +378,137 @@ ipcMain.handle('auth:delete-user', async (_evt, { id }) => {
   }
 })
 
+// -------------------- IPC：新建项目 --------------------
+// 项目编号取「表内最大编号 +1」：删除是软删除（is_deleted=1，行保留），
+// 已删除行仍占着编号，因此编号严格递增、删除后不复用，无需额外计数器表。
+// created_by 由服务端从 currentUser 注入，前端不可伪造。
+ipcMain.handle('project:create', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const name = (p.name || '').trim()
+  if (!name) return { success: false, message: '项目名称不能为空' }
+  if (!p.province_code || !p.city_code || !p.district_code) {
+    return { success: false, message: '请完整选择项目地点（省 / 市 / 区或县）' }
+  }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    // 取全表（含软删除行）最大编号 +1：被删的编号仍占号，保证不复用
+    const [rows] = await conn.execute(
+      'SELECT MAX(CAST(SUBSTRING(project_no, 3) AS UNSIGNED)) AS max_no FROM `project`'
+    )
+    const maxNo = rows[0] && rows[0].max_no ? Number(rows[0].max_no) : 0
+    const projectNo = 'XM' + (maxNo + 1)
+    await conn.execute(
+      `INSERT INTO \`project\`
+        (\`project_no\`, \`name\`, \`province_code\`, \`province_name\`, \`city_code\`, \`city_name\`,
+         \`district_code\`, \`district_name\`, \`remark\`, \`created_by\`)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        projectNo,
+        name,
+        p.province_code,
+        p.province_name || '',
+        p.city_code,
+        p.city_name || '',
+        p.district_code,
+        p.district_name || '',
+        (p.remark || '').trim() || null,
+        currentUser.username
+      ]
+    )
+    return { success: true, message: '项目创建成功', projectNo }
+  } catch (err) {
+    console.error('[project:create] 数据库异常:', err)
+    return { success: false, message: '创建失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：项目列表 --------------------
+ipcMain.handle('project:list', async () => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      `SELECT id, project_no, name,
+              province_code, province_name, city_code, city_name,
+              district_code, district_name,
+              remark, created_by, created_at, updated_at
+         FROM \`project\` WHERE is_deleted = 0 ORDER BY id DESC`
+    )
+    return { success: true, projects: rows }
+  } catch (err) {
+    console.error('[project:list] 数据库异常:', err)
+    return { success: false, message: '读取项目列表失败' }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：更新项目 --------------------
+ipcMain.handle('project:update', async (_evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const id = p.id
+  if (!id) return { success: false, message: '缺少项目 ID' }
+  const name = (p.name || '').trim()
+  if (!name) return { success: false, message: '项目名称不能为空' }
+  if (!p.province_code || !p.city_code || !p.district_code) {
+    return { success: false, message: '请完整选择项目地点（省 / 市 / 区或县）' }
+  }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute('SELECT id FROM `project` WHERE id = ? AND is_deleted = 0', [id])
+    if (rows.length === 0) return { success: false, message: '项目不存在或已删除' }
+    await conn.execute(
+      `UPDATE \`project\`
+          SET \`name\` = ?, \`province_code\` = ?, \`province_name\` = ?, \`city_code\` = ?,
+              \`city_name\` = ?, \`district_code\` = ?, \`district_name\` = ?, \`remark\` = ?
+        WHERE id = ? AND is_deleted = 0`,
+      [
+        name,
+        p.province_code,
+        p.province_name || '',
+        p.city_code,
+        p.city_name || '',
+        p.district_code,
+        p.district_name || '',
+        p.remark || '',
+        id
+      ]
+    )
+    return { success: true, message: '项目已更新' }
+  } catch (err) {
+    console.error('[project:update] 数据库异常:', err)
+    return { success: false, message: '更新失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：删除项目（软删除，保留行占号，保证编号不复用） --------------------
+ipcMain.handle('project:delete', async (_evt, { id }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!id) return { success: false, message: '缺少项目 ID' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute('SELECT id FROM `project` WHERE id = ? AND is_deleted = 0', [id])
+    if (rows.length === 0) return { success: false, message: '项目不存在或已删除' }
+    await conn.execute('UPDATE `project` SET `is_deleted` = 1 WHERE id = ?', [id])
+    return { success: true, message: '项目已删除' }
+  } catch (err) {
+    console.error('[project:delete] 数据库异常:', err)
+    return { success: false, message: '删除失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
 // -------------------- IPC：系统管理（仅管理员可用） --------------------
 // 系统名称 / 版本号：来自 package.json，写活不硬编码
 ipcMain.handle('sys:info', async () => {
@@ -449,10 +580,25 @@ ipcMain.handle('sys:delete-db', async (_evt, { id }) => {
 })
 
 app.whenReady().then(() => {
+  // 确保当前生效库存在 project 表（幂等；存量库不会走「新增连接」初始化，故此处补齐）
+  ensureActiveDbTables()
   // 移除窗口自带的菜单栏（文件 / File、编辑、视图等那一行）
   Menu.setApplicationMenu(null)
   createWindow()
 })
+
+// 对当前生效库幂等建 project 表；数据库不可达时仅告警，不影响启动
+async function ensureActiveDbTables() {
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    await ensureProjectTable(conn)
+  } catch (e) {
+    console.error('[ensureActiveDbTables] project 表确保失败（请检查数据库连接）：', e)
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()

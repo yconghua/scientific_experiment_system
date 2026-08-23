@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
+    "element-china-area-data": "^6.1.0",
     "geodesy": "^2.4.0",
     "geojson-path-finder": "^2.1.0",
     "leaflet": "^1.9.4",

@@ -59,3 +59,20 @@ export function addDb(payload) {
 export function deleteDb(id) {
   return window.api.sys.deleteDb(id)
 }
+
+// 科研项目
+export function createProject(payload) {
+  return window.api.project.create(payload)
+}
+
+export function listProjects() {
+  return window.api.project.list()
+}
+
+export function updateProject(payload) {
+  return window.api.project.update(payload)
+}
+
+export function deleteProject(id) {
+  return window.api.project.delete(id)
+}

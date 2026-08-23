@@ -26,5 +26,11 @@ contextBridge.exposeInMainWorld('api', {
     switchDb: (id) => ipcRenderer.invoke('sys:switch-db', { id }),
     addDb: (payload) => ipcRenderer.invoke('sys:add-db', payload),
     deleteDb: (id) => ipcRenderer.invoke('sys:delete-db', { id })
+  },
+  project: {
+    create: (payload) => ipcRenderer.invoke('project:create', payload),
+    list: () => ipcRenderer.invoke('project:list'),
+    update: (payload) => ipcRenderer.invoke('project:update', payload),
+    delete: (id) => ipcRenderer.invoke('project:delete', { id })
   }
 })
