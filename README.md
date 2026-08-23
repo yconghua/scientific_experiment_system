@@ -1,11 +1,11 @@
-# 葱花工作室管理系统 (conghua-studio)
+# 科研实验系统 (Scientific Experiment System)
 
 > 📅 更新日期：2026年8月20日
 >
 > 🗂 一个本地运行的桌面应用骨架（Electron + Vue 3 + MySQL）：登录即用，已内置**账号体系**与**系统管理**；其余业务模块由数据驱动导航统一承载，当前显示为「正在开发中」，随开发进度逐个填充。
 > Vue 3 + Vite + Electron + MySQL 技术栈，Electron 主进程即后端。
 
-![Version](https://img.shields.io/badge/version-3.6.1-blue)
+![Version](https://img.shields.io/badge/version-1.0.1-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-31-2b2e42)
@@ -58,7 +58,7 @@
 ## 📁 目录结构
 
 ```
-conghua-studio/
+scientific_experiment_system/
 ├── electron/
 │   ├── main.js          # Electron 主进程：窗口管理 + 后端 IPC（auth / sys 两组）
 │   ├── preload.js       # 预加载脚本，向 window.api 暴露 auth / sys 接口

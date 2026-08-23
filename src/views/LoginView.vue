@@ -2,14 +2,14 @@
   <div class="login-page" :style="{ backgroundImage: `url(${loginBg})` }">
     <!-- 上：系统标题 -->
     <header class="login-header">
-      <img :src="logoUrl" class="brand-mark" alt="葱花工作室" />
-      <h1 class="brand-title">葱花工作室管理系统</h1>
+      <img :src="logoUrl" class="brand-mark" alt="科研实验系统" />
+      <h1 class="brand-title">科研实验系统</h1>
     </header>
 
     <!-- 中：简介（左） + 登录表单（右） -->
     <main class="login-main">
       <section class="intro-panel">
-        <img :src="jianjieUrl" class="intro-image" alt="葱花工作室" />
+        <img :src="jianjieUrl" class="intro-image" alt="科研实验系统" />
         <div class="intro-overlay">
           <h2 class="intro-title">系统简介</h2>
           <p class="intro-foot">记录 · 管理 · 成长</p>
@@ -65,7 +65,7 @@
         <button type="button" class="footer-link" @click="openSettings">系统设置</button>
       </div>
       <div class="footer-bottom">
-        <p class="footer-copy">Copyright © 2025–{{ copyrightYear }} Conghua Studio. All Rights Reserved. 葱花工作室 版权所有</p>
+        <p class="footer-copy">Copyright © 2025–{{ copyrightYear }} Scientific Experiment System. All Rights Reserved. 科研实验系统 版权所有</p>
       </div>
     </footer>
 
@@ -93,7 +93,7 @@
         </div>
         <div class="privacy-body">
           <p class="privacy-lead">
-            葱花工作室管理系统（以下简称"本系统"）重视您的隐私。本隐私协议说明本系统在本地运行过程中如何收集、存储与使用您的信息。
+            科研实验系统（以下简称"本系统"）重视您的隐私。本隐私协议说明本系统在本地运行过程中如何收集、存储与使用您的信息。
           </p>
           <section v-for="(sec, i) in privacySections" :key="i" class="privacy-sec">
             <h4>{{ sec.title }}</h4>
@@ -113,7 +113,7 @@
         </div>
         <div class="privacy-body">
           <p class="privacy-lead">
-            葱花工作室管理系统（以下简称"本系统"）的账号由管理员统一分配与管理，使用前请仔细阅读以下服务条款。
+            科研实验系统（以下简称"本系统"）的账号由管理员统一分配与管理，使用前请仔细阅读以下服务条款。
           </p>
           <section v-for="(sec, i) in termsSections" :key="i" class="privacy-sec">
             <h4>{{ sec.title }}</h4>

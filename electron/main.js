@@ -172,7 +172,7 @@ function createWindow() {
     center: true, // 启动时居中
     show: false,
     icon: resolveIcon(),
-    title: '葱花工作室管理系统',
+    title: '科研实验系统',
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

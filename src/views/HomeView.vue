@@ -3,8 +3,8 @@
     <!-- 顶部标题栏 -->
     <header class="home-header">
       <div class="brand-wrap">
-        <img class="brand-logo" :src="logoUrl" alt="葱花工作室" />
-        <span class="brand">葱花工作室管理系统</span>
+        <img class="brand-logo" :src="logoUrl" alt="科研实验系统" />
+        <span class="brand">科研实验系统</span>
       </div>
       <div class="header-right">
         <span class="clock">{{ clock }}</span>
@@ -47,7 +47,7 @@
     </div>
 
     <!-- 底部页脚（仅居中显示系统名） -->
-    <footer class="home-footer">葱花工作室管理系统</footer>
+    <footer class="home-footer">科研实验系统</footer>
 
     <!-- 退出登录确认弹窗 -->
     <div v-if="showConfirm" class="modal-mask" @click.self="cancelLogout">

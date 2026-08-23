@@ -1,9 +1,9 @@
 {
-  "name": "conghua-studio",
-  "version": "3.6.1",
-  "description": "conghua studio - Vue3 + Electron + MySQL",
+  "name": "scientific_experiment_system",
+  "version": "1.0.1",
+  "description": "Scientific Experiment System - Vue3 + Electron + MySQL",
   "main": "electron/main.js",
-  "author": "conghua",
+  "author": "yc",
   "license": "MIT",
   "publishConfig": {
     "@yconghua:registry": "https://npm.pkg.github.com"
@@ -34,7 +34,7 @@
   },
   "build": {
     "appId": "com.conghua.studio",
-    "productName": "conghua studio",
+    "productName": "Scientific Experiment System",
     "icon": "build/icon.ico",
     "files": [
       "electron/**/*",
