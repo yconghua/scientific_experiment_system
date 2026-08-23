@@ -1,0 +1,10 @@
+node_modules/
+dist/
+release/
+.env
+*.log
+.DS_Store
+
+# 开发者个人笔记（仅本地，不上传 GitHub）
+DEV_NOTES.md
+.workbuddy
