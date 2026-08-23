@@ -116,6 +116,11 @@ export function deleteCoordData(id) {
   return window.api.coord.delete(id)
 }
 
+// 清空某项目某类型的全部坐标数据
+export function clearCoordData(projectId, pointType) {
+  return window.api.coord.clear({ projectId, pointType })
+}
+
 // 选择坐标数据文件（只返回路径与文件名，不复制）
 export function pickFile() {
   return window.api.file.pick()

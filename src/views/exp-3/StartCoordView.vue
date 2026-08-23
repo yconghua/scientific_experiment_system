@@ -33,7 +33,7 @@
           <button type="button" class="btn btn-file" :disabled="picking" @click="onPickFile">
             {{ picking ? '选择中…' : '文件选择' }}
           </button>
-          <span class="file-name">{{ coordForm.fileName || '未选择文件（支持 txt / csv / excel）' }}</span>
+          <span class="file-name">{{ coordForm.fileName || '未选择文件（只支持 txt / csv / excel）' }}</span>
         </div>
       </div>
       <div class="form-row">
@@ -57,7 +57,16 @@
 
     <!-- 数据表格 -->
     <div v-if="selectedProjectId" class="list-section">
-      <h3 class="list-title">起点坐标数据（共 {{ records.length }} 条）</h3>
+      <div class="list-head">
+        <h3 class="list-title">起点坐标数据（共 {{ records.length }} 条）</h3>
+        <button
+          class="btn btn-danger-ghost"
+          :disabled="records.length === 0 || clearing"
+          @click="openClear"
+        >
+          {{ clearing ? '清空中…' : '清空数据' }}
+        </button>
+      </div>
       <div class="table-wrap">
         <table class="data-table">
           <thead>
@@ -152,6 +161,27 @@
       </div>
     </div>
 
+    <!-- 清空确认弹窗 -->
+    <div v-if="clearVisible" class="modal-mask" @click.self="closeClear">
+      <div class="modal modal-sm">
+        <div class="modal-head">
+          <h3 class="modal-title">清空数据</h3>
+          <button class="modal-close" @click="closeClear">×</button>
+        </div>
+        <div class="modal-body">
+          <p class="confirm-text">
+            确定要清空当前项目全部 <b>{{ records.length }}</b> 条起点坐标数据吗？此操作不可恢复。
+          </p>
+        </div>
+        <div class="modal-foot">
+          <button class="btn btn-cancel" @click="closeClear">取消</button>
+          <button class="btn btn-danger" :disabled="clearing" @click="confirmClear">
+            {{ clearing ? '清空中…' : '确定清空' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- 轻提示 -->
     <transition name="fade">
       <div v-if="toast.msg" class="toast" :class="toast.type">{{ toast.msg }}</div>
@@ -162,7 +192,7 @@
 <script setup>
 import { reactive, ref, computed, onMounted, watch } from 'vue'
 import * as XLSX from 'xlsx'
-import { listProjects, listCoordData, createCoordData, updateCoordData, deleteCoordData, pickFile } from '../../api'
+import { listProjects, listCoordData, createCoordData, updateCoordData, deleteCoordData, clearCoordData, pickFile } from '../../api'
 
 const POINT_TYPE = 'start'
 const PAGE_SIZE = 5
@@ -423,6 +453,35 @@ async function confirmDelete() {
   }
 }
 
+// -------------------- 清空（删除当前项目全部起点坐标数据） --------------------
+const clearVisible = ref(false)
+const clearing = ref(false)
+function openClear() {
+  if (records.value.length === 0 || clearing.value) return
+  clearVisible.value = true
+}
+function closeClear() {
+  if (clearing.value) return
+  clearVisible.value = false
+}
+async function confirmClear() {
+  clearing.value = true
+  try {
+    const res = await clearCoordData(selectedProjectId.value, POINT_TYPE)
+    if (res && res.success) {
+      showToast('success', res.message || '数据已清空')
+      clearVisible.value = false
+      await loadRecords()
+    } else {
+      showToast('error', (res && res.message) || '清空失败')
+    }
+  } catch (e) {
+    showToast('error', '网络或数据库异常，请稍后重试')
+  } finally {
+    clearing.value = false
+  }
+}
+
 // -------------------- 轻提示 --------------------
 const toast = reactive({ type: '', msg: '' })
 let toastTimer = null
@@ -519,6 +578,7 @@ onMounted(() => {
   display: flex;
   align-items: flex-start;
   gap: 16px;
+  margin: 5px;
 }
 .form-label {
   flex: 0 0 90px;
@@ -574,10 +634,16 @@ onMounted(() => {
   border-top: 1px solid #eceff3;
   padding-top: 18px;
 }
+.list-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
 .list-title {
   font-size: 15px;
   font-weight: 700;
-  margin: 0 0 12px;
+  margin: 0;
 }
 .table-wrap {
   border: 1px solid #eceff3;
@@ -778,6 +844,18 @@ onMounted(() => {
 }
 .btn-file:disabled {
   opacity: 0.6;
+  cursor: not-allowed;
+}
+.btn-danger-ghost {
+  background: #fff;
+  border: 1px solid #e0483b;
+  color: #e0483b;
+}
+.btn-danger-ghost:hover:not(:disabled) {
+  background: #fdecec;
+}
+.btn-danger-ghost:disabled {
+  opacity: 0.45;
   cursor: not-allowed;
 }
 

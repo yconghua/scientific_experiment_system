@@ -953,6 +953,28 @@ ipcMain.handle('coord:delete', async (_evt, { id }) => {
   }
 })
 
+// 清空某项目某类型的全部坐标数据（仅当前用户的数据，物理删除）
+ipcMain.handle('coord:clear', async (_evt, { projectId, pointType }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectId || !pointType) return { success: false, message: '缺少查询条件' }
+  if (pointType !== 'start' && pointType !== 'end') return { success: false, message: '数据类型不合法' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [result] = await conn.execute(
+      'DELETE FROM `coord_data` WHERE project_id = ? AND point_type = ? AND created_by = ?',
+      [projectId, pointType, currentUser.username]
+    )
+    const n = result ? Number(result.affectedRows) : 0
+    return { success: true, message: '已清空 ' + n + ' 条' + (pointType === 'start' ? '起点' : '终点') + '坐标数据' }
+  } catch (err) {
+    console.error('[coord:clear] 数据库异常:', err)
+    return { success: false, message: '清空失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
 // -------------------- IPC：选择坐标数据文件（只返回路径，不复制） --------------------
 ipcMain.handle('dialog:pick-file', async () => {
   if (!currentUser) return { success: false, message: '未登录，请重新登录' }
