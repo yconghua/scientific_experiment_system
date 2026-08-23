@@ -1,11 +1,10 @@
 # 科研实验系统 (Scientific Experiment System)
 
-> 📅 更新日期：2026年8月20日
+> 📅 更新日期：2026年8月23日
 >
-> 🗂 一个本地运行的桌面应用骨架（Electron + Vue 3 + MySQL）：登录即用，已内置**账号体系**与**系统管理**；其余业务模块由数据驱动导航统一承载，当前显示为「正在开发中」，随开发进度逐个填充。
-> Vue 3 + Vite + Electron + MySQL 技术栈，Electron 主进程即后端。
+> 🗂 一个本地运行的桌面应用（Electron + Vue 3 + MySQL），面向科研实验场景：项目管理、地图数据导入、坐标数据处理一体化。Electron 主进程即后端，直接连接 MySQL，无需独立服务。
 
-![Version](https://img.shields.io/badge/version-1.0.1-blue)
+![Version](https://img.shields.io/badge/version-1.1.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-31-2b2e42)
@@ -23,10 +22,7 @@
 - [🚀 快速开始](#快速开始)
 - [📜 常用脚本](#常用脚本)
 - [🧩 功能模块](#功能模块)
-- [🤝 交互约定](#交互约定)
 - [🏗 架构要点](#架构要点)
-- [🗺 路线图 / 已知占位](#路线图--已知占位)
-- [🤝 参与贡献](#参与贡献)
 - [📄 许可证](#许可证)
 
 ---
@@ -34,10 +30,16 @@
 ## ✨ 功能特性
 
 - **本地桌面、数据私有**：基于 Electron 打包，主进程直连本地 / 云端 MySQL，无需独立后端服务，数据落库在你自己的数据库。
-- **账号与登录守卫**：基于 `localStorage` 的会话过期机制（默认 24h），未登录自动跳回登录页；支持修改密码与用户管理。
-- **测试项目**：匹配最短路径脚本（`python_scripts/dijkstra_coord.py`）输入格式的输入测试表单，可生成脚本输入 JSON。
-- **可扩展的导航骨架**：左侧导航由 `src/navConfig.js` 数据驱动，新增模块只改配置即可自动生成路由；当前业务模块以「正在开发中」占位，便于后续逐个填充。
-- **开发者笔记（本地）**：`DEV_NOTES.md` 仅本地记录、已被 `.gitignore` 忽略，不上传 GitHub。
+- **账号体系**：登录 / 退出 / 修改密码；会话基于 `localStorage`（默认 24h），未登录自动跳回登录页；管理员可进行用户管理（新增 / 编辑 / 删除）。
+- **项目全流程管理**：
+  - **新建项目**：项目名称 + 省 / 市 / 区（县）三级联动选址 + 备注；项目编号（XM1、XM2…）自动生成、严格递增、删除后不复用；创建人自动记录当前登录账号。
+  - **项目列表**：按项目名称、省、市、区县多条件筛选；每页 5 行分页；编辑 / 删除（弹窗确认）；每个用户只看到自己创建的项目。
+- **地图数据导入**（每项目仅限一种方式，二选一互斥，切换项目时红色提示）：
+  - **API 导入**：录入 API 提供平台、API Key、API 网址；
+  - **路网导入**：系统文件框选择路网文件，自动复制到项目目录（重名自动改名不覆盖），记录原始路径与复制路径。
+- **坐标数据处理**：
+  - **起点 / 终点坐标数据**：支持 txt / csv / excel 三种文件，提交时读取并解析文件内容、逐行校验经纬度后入库；提供 txt / csv / excel 三种示例文件下载；数据表格每页 5 行分页，支持编辑 / 删除。
+- **系统管理**：查看系统名称 / 版本号、当前数据库连接信息；支持多套数据库连接的新增、切换、删除。
 
 ---
 
@@ -48,9 +50,10 @@
 | 前端框架 | Vue 3 (`<script setup>`) + Vue Router 4 |
 | 构建工具 | Vite 5 |
 | 桌面外壳 | Electron 31 |
-| 数据库 | MySQL（通过 `mysql2` 驱动） |
+| 数据库 | MySQL（`mysql2` 驱动） |
 | 认证 | `bcryptjs`（密码哈希） |
-| 路径计算 | `geojson-path-finder`、`leaflet`（为最短路径功能规划引入，当前该功能为「正在开发中」占位，尚未接入） |
+| 行政区划 | `element-china-area-data`（省市区数据） |
+| 表格解析 | `xlsx`（Excel 文件解析与生成） |
 | 打包 | `electron-builder` |
 
 ---
@@ -60,33 +63,34 @@
 ```
 scientific_experiment_system/
 ├── electron/
-│   ├── main.js          # Electron 主进程：窗口管理 + 后端 IPC（auth / sys 两组）
-│   ├── preload.js       # 预加载脚本，向 window.api 暴露 auth / sys 接口
+│   ├── main.js          # Electron 主进程：窗口管理 + 全部 IPC（auth / sys / project / mapData / coord / dialog）
+│   ├── preload.js       # 预加载脚本，向 window.api 暴露各业务接口
 │   └── db/
-│       └── create_new_database.js # 数据库初始化逻辑（建库 + user 表 + 默认管理员，添加数据库时自动调用）
+│       ├── create_new_database.js          # 建库建表（user / project / map_data_import / coord_data + 默认管理员）
+│       └── database_default_connections.js # 默认数据库连接清单
 ├── src/
-│   ├── api/index.js      # 前端 IPC 封装（仅 auth / sys）
-│   ├── App.vue
-│   ├── main.js
-│   ├── navConfig.js      # 左侧导航配置（数据驱动，增减导航只改此文件）
+│   ├── api/index.js      # 前端 IPC 统一封装
+│   ├── App.vue / main.js
+│   ├── navConfig.js      # 左侧导航配置（数据驱动）
 │   ├── router/index.js   # 路由（由 navConfig 自动生成子路由）
-│   ├── session.js        # 登录态（localStorage，默认 24h 有效）
+│   ├── session.js        # 登录态（localStorage，默认 24h）
 │   ├── assets/           # 登录背景、Logo 等图片资源
-│   └── views/            # 页面组件
-│       ├── LoginView.vue        # 登录页
-│       ├── HomeView.vue         # 应用外壳（侧边导航 + 内容区）
-│       ├── HomePageView.vue     # 首页（欢迎 + 模块开发提示）
-│       ├── NavView.vue          # 通用占位页（显示「正在开发中」）
-│       ├── TestView.vue            # 最短路径脚本输入测试表单
-│       └── ProfileView.vue      # 个人中心（系统管理 / 开发者日志 / 用户管理）
+│   └── views/            # 页面组件（按导航栏分文件夹）
+│       ├── LoginView.vue / HomeView.vue / HomePageView.vue / NavView.vue / ProfileView.vue
+│       ├── exp-1/        # 新建项目
+│       │   ├── NewProjectView.vue   # 新建项目表单
+│       │   └── ProjectListView.vue  # 项目列表
+│       ├── exp-2/        # 地图数据导入
+│       │   ├── ApiImportView.vue    # API 导入
+│       │   └── RoadImportView.vue   # 路网导入
+│       └── exp-3/        # 加载点位数据
+│           ├── StartCoordView.vue   # 起点坐标数据
+│           └── EndCoordView.vue     # 终点坐标数据
 ├── build/icon.ico
-├── DEV_NOTES.md          # 开发者个人笔记（本地，已被 .gitignore 忽略，不上传）
 ├── index.html
 ├── vite.config.mjs
 └── package.json
 ```
-
-> 业务数据表（`civil_service_exam` / `central_soe` / `university` / `local_soe` / `private_soe`）及其对应页面已移除以精简项目，当前数据库仅保留 `user` 表。
 
 ---
 
@@ -108,7 +112,7 @@ npm install
 
 ### 2. 数据库初始化（自动完成）
 
-无需手动执行初始化脚本：在登录页「系统设置 → 添加数据库」时，主进程会自动建库（不存在则建）、创建 `user` 表并写入默认管理员（账号 `admin` / 密码 `admin123`）。默认的阿里云连接已初始化，可直接登录使用。
+无需手动执行初始化脚本：在登录页「系统设置 → 添加数据库」时，主进程会自动建库（不存在则建）、创建业务表（`user` / `project` / `map_data_import` / `coord_data`）并写入默认管理员（账号 `admin` / 密码 `admin123`）。应用启动时也会对当前生效的数据库幂等补齐缺失的表。默认的阿里云连接已初始化，可直接登录使用。
 
 ### 3. 启动开发模式
 
@@ -136,54 +140,33 @@ npm run dev
 
 ## 🧩 功能模块
 
-导航由 `src/navConfig.js` 数据驱动，路由由 `src/router/index.js` 自动生成。所有子项统一由 `NavView` 承载，显示「正在开发中」。
+导航由 `src/navConfig.js` 数据驱动，路由由 `src/router/index.js` 自动生成。
 
-### 顶部
-- **首页**（`/home`，`HomePageView`）：欢迎横幅 + 「功能模块正在开发中」提示。
+### 新建项目
+- **新建项目**：填写项目名称、省 / 市 / 区（县）三级联动选择项目地点、备注；提交后项目编号（XM1、XM2…）自动生成（严格递增，删除后不复用），创建人自动记录为当前登录账号。
+- **项目列表**：展示当前用户创建的项目（项目编号 / 名称 / 地点 / 备注 / 操作）；支持按项目名称、省、市、区县筛选；每页 5 行、显示「第 X 页 / 共 Y 页」；支持编辑与删除（弹窗确认）。
+
+### 地图数据导入（每个项目只能使用其中一种方式）
+- **API 导入**：选择项目 → 录入 API 提供平台、API Key、API 网址 → 提交入库；下方表格展示该项目的 API 导入记录，支持编辑 / 删除。
+- **路网导入**：选择项目 → 通过系统文件框选择路网文件（自动复制到 `userData/projects/{项目编号}/`，重名自动改名、不覆盖原文件）→ 提交入库；下方表格展示该项目的路网导入记录，支持编辑 / 删除。
+- 若某项目已使用其中一种方式，在另一页面选择该项目时，会以红色文字持续提示互斥。
+
+### 加载点位数据
+- **起点坐标数据 / 终点坐标数据**：选择项目 → 通过系统文件框选择坐标文件（支持 txt / csv / excel，表头格式为 `No,Name,Longitude,Latitude`）→ 提交后由后端解析文件内容、逐行校验经纬度并入库；页面提供 txt / csv / excel 三种示例文件下载；下方表格展示解析入库的数据行（序号 / 点名称 / 经度 / 纬度），每页 5 行，支持编辑 / 删除。
 
 ### 个人空间
-- **测试项目**（`/example-19`，`TestView`）：匹配 `python_scripts/dijkstra_coord.py` 输入格式的测试表单，填写坐标系、节点、边、起终点后一键生成脚本输入 JSON。
-
-### 系统 / 用户
-- **个人中心**（`/profile`，`ProfileView`）：含「系统管理」页签，可查看**开发者日志**、进行**用户管理**（查看 / 新增 / 编辑 / 删除用户、修改密码）。
-
-### 其余导航项
-- 大分组与子项当前为占位文案（如「示例导航栏1~4」「示例小导航栏11~18」），点击均进入 `NavView` 的「正在开发中」占位页，便于后续逐个接入真实模块。
-
----
-
-## 🤝 交互约定
-
-- **占位即开发提示**：尚未实现的导航子项由 `NavView` 统一显示「正在开发中」，无需为每个模块单独写页面。
-- **登录守卫**：基于 `localStorage` 中的会话过期时间（默认 24h），`router.beforeEach` 拦截未登录访问，主页与子路由均需登录。
-- **网页端限制**：`window.api` 由 Electron `preload.js` 注入，网页端（纯 Vite）无此对象。涉及数据库的功能（登录 / 用户管理 / 系统信息）依赖 Electron 环境。
-- **删除确认**：用户管理等涉及删除的操作使用自定义页面内弹窗二次确认，不使用浏览器原生 `confirm()` / `alert()`。
+- **个人中心**：查看系统信息（系统名称 / 版本号）、当前数据库连接信息；管理员可进行用户管理（新增 / 编辑 / 删除用户）；支持修改密码。
 
 ---
 
 ## 🏗 架构要点
 
-- **Electron 主进程即后端**：`electron/main.js` 仅监听 `auth` / `sys` 两组 IPC，直接操作 MySQL（当前仅 `user` 表）。
-- **前端通过 `window.api` 调用**：`electron/preload.js` 仅暴露 `auth` / `sys` 分组，`src/api/index.js` 做统一封装。
+- **Electron 主进程即后端**：`electron/main.js` 监听 `auth` / `sys` / `project` / `mapData` / `coord` / `dialog` 等 IPC，直接操作 MySQL 业务表；文件解析、文件复制等操作也在主进程完成。
+- **前端通过 `window.api` 调用**：`electron/preload.js` 仅暴露白名单接口，`src/api/index.js` 统一封装。
+- **数据权限在服务端控制**：所有业务数据的 `created_by` 由主进程注入当前登录账号，列表查询按当前用户过滤，前端无法伪造。
 - **路由采用 hash 模式**：打包后通过 `file://` 打开也能正确定位子路由，避免白屏。
-- **数据驱动导航**：`navGroups.flatMap` 自动由 `navConfig` 生成子路由，所有子项均回退 `NavView` 占位页。
-
----
-
-## 🗺 路线图 / 已知占位
-
-以下功能当前显示「正在开发中」占位，尚未实现真实内容，计划在后续版本补全：
-
-- 「示例导航栏 / 示例小导航栏」各占位导航项承载的业务模块
-- 首页数据概览、我的收藏等聚合模块
-- 个人中心的笔记等子模块
-- 最短路径计算页接入真实 GeoJSON 路网（`geojson-path-finder`）与 Leaflet 交互地图
-
----
-
-## 🤝 参与贡献
-
-欢迎通过 Issue 与 Pull Request 参与本项目。提交前请先 `npm install` 并本地 `npm run dev` 自测，确保不影响现有功能与数据库脚本。
+- **数据驱动导航**：`navGroups.flatMap` 自动由 `navConfig` 生成子路由。
+- **文件数据解析**：坐标文件（txt / csv / excel）在提交时读取并解析成结构化数据后入库；路网文件选择后复制到项目专属目录（`userData/projects/{项目编号}/`）。
 
 ---
 
