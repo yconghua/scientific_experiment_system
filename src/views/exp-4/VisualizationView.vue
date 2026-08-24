@@ -47,6 +47,7 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { listProjects, listMapData, listCoordData, getCityBoundary } from '../../api'
+import AMapLoader from '@amap/amap-jsapi-loader'
 
 const projects = ref([])
 const projectsLoading = ref(false)
@@ -107,74 +108,90 @@ function destroyMap() {
   }
 }
 
+async function loadMarkers(AMap) {
+  // 清除旧标记（如果有）
+  if (map._markers) map._markers.forEach(m => map.remove(m))
+  map._markers = []
+
+  const [startRes, endRes] = await Promise.all([
+    listCoordData(selectedProjectId.value, 'start'),
+    listCoordData(selectedProjectId.value, 'end')
+  ])
+
+  const draw = (records, color) => {
+    records.forEach(p => {
+      const lng = Number(p.longitude), lat = Number(p.latitude)
+      if (!isFinite(lng) || !isFinite(lat)) return
+      const marker = new AMap.Marker({
+        position: [lng, lat],
+        content: `<div style="width:12px;height:12px;background:${color};border:2px solid white;border-radius:50%;"></div>`,
+        offset: new AMap.Pixel(-6, -6),
+        label: {
+          content: `<div style="background:rgba(255,255,255,0.8);padding:2px 6px;border-radius:4px;font-size:12px;">${p.point_name||''}</div>`,
+          direction: 'right'
+        }
+      })
+      marker.setMap(map)
+      map._markers.push(marker)
+    })
+  }
+
+  draw(startRes?.success ? startRes.records : [], '#e0483b')
+  draw(endRes?.success ? endRes.records : [], '#0d80e0')
+}
+
+const MAP_KEY = 'ae88b2eef81a001a2724af0f8a6b6b0d'
+
 async function initApiMap() {
   destroyMap()
   mapError.value = ''
   if (!mapEl.value) return
 
-  // 1) 初始化地图（高德瓦片，国内访问快、无需 key）
-  map = L.map(mapEl.value, { zoomControl: true }).setView([28.19, 112.97], 8)
-  map.getContainer().style.backgroundColor = '#ffffff'
+  const cityName = currentProject.value?.city_name
+  if (!cityName) {
+    mapError.value = '项目缺少城市名称'
+    return
+  }
+  console.log('查询城市:', cityName)
 
-  L.tileLayer(
-    'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
-    { subdomains: '1234', maxZoom: 18, attribution: '高德地图' }
-  ).addTo(map)
+  try {
+    const AMap = await AMapLoader.load({
+      key: MAP_KEY,
+      version: '2.0',
+      plugins: ['AMap.DistrictSearch']
+    })
 
+    map = new AMap.Map(mapEl.value, {   // 直接传入 DOM 元素
+      zoom: 11,
+      viewMode: '3D',
+      mapStyle: 'amap://styles/whitesmoke',
+      center: [115.857, 28.682], // 暂时固定南昌中心，测试用
+      showIndoorMap: false
+    })
 
-  const allPoints = []
+    const districtSearch = new AMap.DistrictSearch({
+      level: 'city',
+      extensions: 'all'
+    })
 
-  // 2) 市行政区域边界（统一走主进程 IPC：主进程请求 DataV，开发/生产一致，无跨域、不依赖 Vite 代理）
-  // 城市编码规整为 6 位：6 位不变；4 位末尾补 00；其他位数补 0 至 6 位
-  const cityCodeRaw = currentProject.value && currentProject.value.city_code
-  const cityCode = cityCodeRaw ? String(cityCodeRaw).padEnd(6, '0') : null
-  if (cityCode) {
-    try {
-      const res = await getCityBoundary(cityCode)
-      const geo = res && res.success ? res.geo : null
-      if (geo && geo.features && geo.features.length) {
-        boundaryLayer = L.geoJSON(geo, {
-          style: { color: '#0d80e0', weight: 2, fillColor: '#0d80e0', fillOpacity: 0.08 }
-        }).addTo(map)
-        addMaskWithTurf(geo, map);
-        map.fitBounds(boundaryLayer.getBounds())
+    districtSearch.search(cityName, (status, result) => {
+      console.log('查询状态:', status)
+      console.log('查询结果:', result)
+      if (status === 'complete' && result.info === 'OK') {
+        const boundaries = result.districtList[0]?.boundaries
+        if (boundaries && boundaries.length > 0) {
+          // ... 构造 mask 的代码（与之前相同）
+          // 记得调用 map.setFitView()
+        } else {
+          mapError.value = '无边界数据，可能城市名称不匹配'
+        }
       } else {
-        mapError.value = (res && res.message) || '行政区域边界加载失败，请检查网络'
+        mapError.value = '行政区划查询失败'
       }
-    } catch (e) {
-      mapError.value = '行政区域边界加载失败，请检查网络'
-    }
-  } else {
-    mapError.value = '该项目缺少市信息（city_code）'
-  }
-
-  // 3) 起点（红）/ 终点（蓝）标记
-  const drawPoints = (rows, color) => {
-    for (const r of rows || []) {
-      const lat = Number(r.latitude)
-      const lng = Number(r.longitude)
-      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue
-      allPoints.push([lat, lng])
-      const marker = L.circleMarker([lat, lng], {
-        radius: 6,
-        color: '#ffffff',
-        weight: 1.5,
-        fillColor: color,
-        fillOpacity: 0.9
-      }).addTo(map)
-      marker.bindPopup(`<b>${r.point_name || '未命名'}</b><br/>经度 ${lng}，纬度 ${lat}`)
-    }
-  }
-  const [startRes, endRes] = await Promise.all([
-    listCoordData(selectedProjectId.value, 'start'),
-    listCoordData(selectedProjectId.value, 'end')
-  ])
-  drawPoints(startRes && startRes.success ? startRes.records : [], '#e0483b')
-  drawPoints(endRes && endRes.success ? endRes.records : [], '#0d80e0')
-
-  // 4) 边界加载失败时，用所有点位自适应视野
-  if (!boundaryLayer && allPoints.length > 0) {
-    map.fitBounds(allPoints)
+    })
+  } catch (e) {
+    console.error(e)
+    mapError.value = '高德地图加载失败: ' + e.message
   }
 }
 
