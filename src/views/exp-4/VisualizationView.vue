@@ -121,27 +121,19 @@ async function initApiMap() {
 
   const allPoints = []
 
-  // 2) 市行政区域边界（阿里云 DataV GeoJSON，需联网）
+  // 2) 市行政区域边界（统一走主进程 IPC：主进程请求 DataV，开发/生产一致，无跨域、不依赖 Vite 代理）
   const cityCode = currentProject.value && currentProject.value.city_code
   if (cityCode) {
     try {
-      let geo = null
-      if (import.meta.env.DEV) {
-        // 开发环境：走 Vite 代理（相对路径 /datav → https://geo.datav.aliyun.com，绕过跨域）
-        const resp = await fetch(`/datav/areas_v3/bound/${cityCode}_full.json`)
-        if (resp.ok) geo = await resp.json()
-      } else {
-        // 生产环境（打包后无 Vite 服务器）：走主进程 IPC，彻底绕开浏览器 CORS
-        const res = await getCityBoundary(cityCode)
-        if (res && res.success) geo = res.geo
-      }
+      const res = await getCityBoundary(cityCode)
+      const geo = res && res.success ? res.geo : null
       if (geo && geo.features && geo.features.length) {
         boundaryLayer = L.geoJSON(geo, {
           style: { color: '#0d80e0', weight: 2, fillColor: '#0d80e0', fillOpacity: 0.08 }
         }).addTo(map)
         map.fitBounds(boundaryLayer.getBounds())
       } else {
-        mapError.value = '行政区域边界加载失败，请检查网络'
+        mapError.value = (res && res.message) || '行政区域边界加载失败，请检查网络'
       }
     } catch (e) {
       mapError.value = '行政区域边界加载失败，请检查网络'

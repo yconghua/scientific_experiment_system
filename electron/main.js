@@ -1332,7 +1332,7 @@ ipcMain.handle('viz:boundary', async (_evt, { cityCode }) => {
   try {
     const controller = new AbortController()
     const t = setTimeout(() => controller.abort(), 15000)
-    const resp = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${cityCode}_full.json`, {
+    const resp = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/geojson?code=${cityCode}_full`, {
       signal: controller.signal
     })
     clearTimeout(t)
@@ -1340,6 +1340,10 @@ ipcMain.handle('viz:boundary', async (_evt, { cityCode }) => {
       return { success: false, message: '边界接口响应异常（HTTP ' + resp.status + '）' }
     }
     const geo = await resp.json()
+    // 校验返回的是有效 GeoJSON（FeatureCollection 且至少一个要素）
+    if (!geo || !Array.isArray(geo.features) || geo.features.length === 0) {
+      return { success: false, message: '边界数据为空，请检查项目中的城市编码' }
+    }
     return { success: true, geo }
   } catch (err) {
     console.error('[viz:boundary] 拉取行政边界失败:', err)
