@@ -1,6 +1,6 @@
 # Scientific Experiment System
 
-[English](#english-version) | [中文](#中文版)
+[English](./README.md) | [中文](./README_zh.md)
 
 ---
 A locally-run desktop application for scientific experiments: from **map data import → coordinate data processing → path distance calculation → result visualization**, all within a "project" unit. Built on Electron + Vue 3 + MySQL, with the Electron main process acting as the backend, connecting directly to the database – no need for a separate server deployment.
