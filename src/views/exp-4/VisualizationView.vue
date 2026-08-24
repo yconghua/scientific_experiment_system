@@ -1,6 +1,6 @@
 <template>
   <div class="module">
-    <h2 class="module-title">可视化和计算结果</h2>
+    <h2 class="module-title">可视化</h2>
     <p class="module-tip">正在开发中</p>
   </div>
 </template>

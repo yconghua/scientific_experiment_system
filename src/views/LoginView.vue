@@ -62,7 +62,9 @@
       <div class="footer-top">
         <button type="button" class="footer-link" @click="showTerms = true">服务条款</button>
         <button type="button" class="footer-link" @click="showPrivacy = true">隐私协议</button>
+        <!--
         <button type="button" class="footer-link" @click="openSettings">系统设置</button>
+        -->
       </div>
       <div class="footer-bottom">
         <p class="footer-copy">Copyright © 2025–{{ copyrightYear }} Scientific Experiment System. All Rights Reserved. 科研实验系统 版权所有</p>
