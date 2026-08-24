@@ -1,0 +1,84 @@
+# .github/workflows/release.yml
+# 作用：推送 v* 标签（或手动触发）时，在 GitHub 上自动打包并发布 Release。
+# 流程：npm run build（Vite 前端构建）→ electron-builder（生成安装包到 release/）→ 上传 GitHub Release。
+
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'          # 例：推送 v1.3.2 标签时触发
+  workflow_dispatch:  # 也可在 Actions 页面手动触发（手动触发前需先推送一个 v* 标签）
+
+jobs:
+  # ---------------- 任务一：跨平台打包 ----------------
+  build:
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false   # 一个平台失败不阻断其他平台
+      matrix:
+        # 只需某个平台时删掉其余行即可（如只打包 Windows 只留 windows-latest）
+        os:
+          - windows-latest   # 产出 NSIS 安装包 .exe
+          - macos-latest     # 产出 .dmg / .zip
+          - ubuntu-latest    # 产出 AppImage / .deb
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm   # 命中 package-lock.json 的依赖缓存，加快安装
+
+      - name: 安装依赖
+        run: npm ci    # 按 package-lock.json 精确安装
+
+      - name: 构建前端
+        run: npm run build   # vite build → dist/
+
+      - name: electron-builder 打包
+        run: npx electron-builder --publish never
+        env:
+          # 未配置代码签名证书时跳过签名，避免 mac / win 打包失败
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+
+      - name: 上传安装包产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ matrix.os }}
+          path: release/*
+          if-no-files-found: error
+
+  # ---------------- 任务二：汇总产物并发布 Release ----------------
+  release:
+    name: Publish Release
+    needs: build        # 等三个平台都打包完成再发布
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # 需要写 Release 的权限
+
+    steps:
+      - name: 下载所有安装包
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: 发布到 GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # 自动附加到当前 tag 对应的 Release（不存在则创建）
+          generate_release_notes: true   # 自动生成变更说明
+          files: |
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.zip
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.yml
+            artifacts/**/*.blockmap
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
