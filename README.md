@@ -71,10 +71,7 @@
 | 构建工具 | Vite 5 |
 | 桌面外壳 | Electron 31 |
 | 数据库 | MySQL（mysql2 驱动） |
-| 认证 | bcryptjs（密码哈希） |
 | 行政区划 | element-china-area-data |
-| 表格解析 | xlsx（Excel 解析与生成） |
-| 地图与可视化 | Leaflet、@amap/amap-jsapi-loader、xml2js、@turf/turf |
 | 路网计算 | OSRM（外部可执行程序） |
 | 打包 | electron-builder |
 
@@ -129,7 +126,7 @@ npm install
 
 ### 2. 数据库初始化（自动完成）
 
-无需手动执行初始化脚本：应用启动时会对当前生效的数据库幂等补齐缺失的表（`user` / `project` / `map_data_import` / `coord_data` / `calc_result`），并写入默认管理员（账号 `admin` / 密码 `admin123`）。默认的阿里云连接已初始化，可直接登录使用。
+无需手动执行初始化脚本：应用启动时会对当前生效的数据库幂等补齐缺失的表（`user` / `project` / `map_data_import` / `coord_data` / `calc_result`）。默认的阿里云连接已初始化，可直接登录使用；也可自行添加数据库（本地数据库和云数据库均可）。
 
 ### 3. 启动开发模式
 
