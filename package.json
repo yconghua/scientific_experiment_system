@@ -1,6 +1,6 @@
 {
   "name": "scientific_experiment_system",
-  "version": "1.3.1",
+  "version": "1.3.2",
   "description": "Scientific Experiment System - Vue3 + Electron + MySQL",
   "main": "electron/main.js",
   "author": "yc",
