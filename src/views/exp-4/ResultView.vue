@@ -31,11 +31,13 @@
         <input v-model.number="concurrency" class="form-input form-input-sm" type="number" min="1" max="100" />
         <span class="form-hint">同时进行的请求数（1~100，默认 20）</span>
       </div>
+      <!--
       <div class="form-row">
         <label class="form-label">OSRM 端口</label>
         <input v-model.number="port" class="form-input form-input-sm" type="number" min="1" max="65535" />
         <span class="form-hint">本机 OSRM 路由服务端口（默认 5000）</span>
       </div>
+      -->
       <div class="form-row">
         <label class="form-label">路网文件</label>
         <div class="road-file">
@@ -405,7 +407,7 @@ function showToast(type, msg) {
   background: #fff;
   border-radius: 10px;
   padding: 24px;
-  min-height: 100%;
+  height: auto;
 }
 .module-title {
   font-size: 18px;
@@ -450,7 +452,7 @@ function showToast(type, msg) {
 }
 .pick-select {
   height: 34px;
-  min-width: 240px;
+  width: 200px;
   padding: 0 10px;
   border: 1px solid #d7dce3;
   border-radius: 6px;
