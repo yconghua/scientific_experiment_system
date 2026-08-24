@@ -80,9 +80,12 @@
           <button type="button" class="privacy-close" @click="showAdminContact = false" aria-label="关闭">×</button>
         </div>
         <div class="privacy-body">
-          <p>管理员联系方式：1509054114@qq.com</p>
-          <p>不用联系我，直接使用这个测试账号密码登入即可</p>
+          <p>（1）管理员联系方式：1509054114@qq.com</p>
+          <p>（2）不用联系我，直接使用这个测试账号密码登入即可；</p>
           <p>账号是测试用户001，密码是123456</p>
+          <p>（3）目前系统自带有一个阿里云MySQL云数据库（不允许被删除！）；</p>
+          <p>如果您想使用自己电脑上面的MySQL数据库，可以在下方系统设置里面点击切换数据库按钮，然后添加您电脑本地MySQL数据库。您自己的数据库添加成功后，账号密码请联系管理员获取账号密码。</p>
+          <p>最后，祝您生活越快。</p>
         </div>
       </div>
     </div>
