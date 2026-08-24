@@ -321,7 +321,7 @@ function cancelLogout() {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 100;
+  z-index: 1000;
 }
 .modal-box {
   width: 300px;

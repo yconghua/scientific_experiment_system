@@ -4,7 +4,7 @@
 >
 > 🗂 一个本地运行的桌面应用（Electron + Vue 3 + MySQL），面向科研实验场景：项目管理、地图数据导入、坐标数据处理一体化。Electron 主进程即后端，直接连接 MySQL，无需独立服务。
 
-![Version](https://img.shields.io/badge/version-1.1.0-blue)
+![Version](https://img.shields.io/badge/version-1.2.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![Electron](https://img.shields.io/badge/Electron-31-2b2e42)

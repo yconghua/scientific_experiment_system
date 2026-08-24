@@ -60,5 +60,8 @@ contextBridge.exposeInMainWorld('api', {
   file: {
     select: (projectNo) => ipcRenderer.invoke('dialog:select-file', { projectNo }),
     pick: () => ipcRenderer.invoke('dialog:pick-file')
+  },
+  viz: {
+    boundary: (cityCode) => ipcRenderer.invoke('viz:boundary', { cityCode })
   }
 })

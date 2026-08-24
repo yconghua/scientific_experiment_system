@@ -148,3 +148,8 @@ export function clearCalcResults(projectId) {
 export function onCalcProgress(cb) {
   return window.api.calc.onProgress(cb)
 }
+
+// 行政区域边界（主进程请求 DataV，绕过浏览器跨域）
+export function getCityBoundary(cityCode) {
+  return window.api.viz.boundary(cityCode)
+}

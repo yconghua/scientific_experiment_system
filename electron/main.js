@@ -1324,6 +1324,29 @@ ipcMain.handle('apiCalc:run', async (evt, payload) => {
   }
 })
 
+// -------------------- IPC：行政区域边界（地图可视化用） --------------------
+// 主进程请求阿里云 DataV 行政区划接口，绕过浏览器跨域限制（生产环境前端无法直连）
+ipcMain.handle('viz:boundary', async (_evt, { cityCode }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!cityCode) return { success: false, message: '缺少城市编码' }
+  try {
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), 15000)
+    const resp = await fetch(`https://geo.datav.aliyun.com/areas_v3/bound/${cityCode}_full.json`, {
+      signal: controller.signal
+    })
+    clearTimeout(t)
+    if (!resp.ok) {
+      return { success: false, message: '边界接口响应异常（HTTP ' + resp.status + '）' }
+    }
+    const geo = await resp.json()
+    return { success: true, geo }
+  } catch (err) {
+    console.error('[viz:boundary] 拉取行政边界失败:', err)
+    return { success: false, message: '行政区域边界加载失败，请检查网络' }
+  }
+})
+
 // -------------------- IPC：系统管理（仅管理员可用） --------------------
 // 系统名称 / 版本号：来自 package.json，写活不硬编码
 ipcMain.handle('sys:info', async () => {
