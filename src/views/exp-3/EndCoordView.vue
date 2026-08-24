@@ -502,7 +502,7 @@ onMounted(() => {
   background: #fff;
   border-radius: 10px;
   padding: 24px;
-  min-height: 100%;
+  height: auto;
 }
 .module-title {
   font-size: 18px;
