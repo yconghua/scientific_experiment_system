@@ -181,33 +181,36 @@ async function initApiMap() {
     })
 
     // 在线通用路网底图（高德路网 style=7）：让地图显示真实路网，不再空白
-    L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}', {
+    L.tileLayer('https://wprd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&scl=2&x={x}&y={y}&z={z}', {
       maxZoom: 18,
       subdomains: '1234',
       attribution: '&copy; 高德地图'
     }).addTo(map)
 
-    // 仅显示行政区域内：用「世界大矩形挖掉行政区整体」的白色遮罩盖住区域外
-    // 注意：DataV _full 会返回多个要素（市整体 + 各区县），遮罩只取第一个要素（整体边界）挖洞，
-    // 否则后续区县要素会再把市区盖白。GeoJSON 坐标为 [lng,lat]，Leaflet 需 [lat,lng]。
+    // 仅显示行政区域内：用「世界大矩形挖掉所有行政区」的白色遮罩盖住区域外。
+    // 注意：DataV 城市级 _full 接口只返回下辖的各区县（无"市本级"整体要素），
+    // 因此必须把每个区县的外环都作为孔洞挖掉，孔洞的并集即等于整座城市；
+    // 若只取 features[0] 则只会挖出某一个区（如芙蓉区）。
+    // GeoJSON 坐标为 [lng,lat]，Leaflet 需 [lat,lng]。
     const worldRect = [[85, -180], [-85, -180], [-85, 180], [85, 180]]
     maskLayer = L.layerGroup().addTo(map)
-    const mainFeature = geo.features[0]
-    const mg = mainFeature && mainFeature.geometry
-    if (mg) {
-      const rings = []
-      if (mg.type === 'Polygon') rings.push(mg.coordinates[0])
-      else if (mg.type === 'MultiPolygon') mg.coordinates.forEach((poly) => rings.push(poly[0]))
-      rings.forEach((ring) => {
-        const llRing = ring.map((p) => [p[1], p[0]]) // [lng,lat] → [lat,lng]
-        L.polygon([worldRect, llRing], {
-          stroke: false,
-          fillColor: '#ffffff',
-          fillOpacity: 1,
-          fillRule: 'evenodd',
-          interactive: false
-        }).addTo(maskLayer)
-      })
+    const rings = []
+    geo.features.forEach((f) => {
+      const g = f.geometry
+      if (!g) return
+      if (g.type === 'Polygon') rings.push(g.coordinates[0])
+      else if (g.type === 'MultiPolygon') g.coordinates.forEach((poly) => rings.push(poly[0]))
+    })
+    if (rings.length) {
+      const llRings = rings.map((r) => r.map((p) => [p[1], p[0]])) // [lng,lat] → [lat,lng]
+      // 单个多边形：worldRect 为外环，其余各区县外环为孔洞（evenodd 保证挖洞）
+      L.polygon([worldRect, ...llRings], {
+        stroke: false,
+        fillColor: '#ffffff',
+        fillOpacity: 1,
+        fillRule: 'evenodd',
+        interactive: false
+      }).addTo(maskLayer)
     }
 
     // 行政区域：在底图与遮罩之上叠加彩色描边/填充作为高亮（降低填充透明度，路网可透出）
