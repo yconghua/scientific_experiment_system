@@ -4,3 +4,6 @@ release/
 .env
 *.log
 .DS_Store
+
+# 开发者笔记
+cong_DEV.md
