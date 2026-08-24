@@ -43,6 +43,12 @@
       "dist/**/*",
       "build/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "electron/osrm/bin",
+        "to": "osrm/bin"
+      }
+    ],
     "directories": {
       "output": "release"
     }

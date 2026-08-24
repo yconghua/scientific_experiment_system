@@ -125,3 +125,21 @@ export function clearCoordData(projectId, pointType) {
 export function pickFile() {
   return window.api.file.pick()
 }
+
+// 路径计算（calc_result）
+export function runCalc(payload) {
+  return window.api.calc.run(payload)
+}
+
+export function listCalcResults(projectId) {
+  return window.api.calc.list(projectId)
+}
+
+export function clearCalcResults(projectId) {
+  return window.api.calc.clear(projectId)
+}
+
+// 订阅计算进度事件，返回取消订阅函数
+export function onCalcProgress(cb) {
+  return window.api.calc.onProgress(cb)
+}

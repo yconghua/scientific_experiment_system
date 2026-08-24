@@ -28,7 +28,7 @@
           <button type="button" class="btn btn-file" :disabled="selecting" @click="onSelectFile">
             {{ selecting ? '选择中…' : '文件选择' }}
           </button>
-          <span class="file-name">{{ roadForm.fileName || '未选择文件' }}</span>
+          <span class="file-name">{{ roadForm.fileName || '未选择文件（仅支持 .osm / .osm.pbf）' }}</span>
         </div>
       </div>
       <div class="form-row">

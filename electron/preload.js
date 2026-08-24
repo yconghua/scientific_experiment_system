@@ -46,6 +46,16 @@ contextBridge.exposeInMainWorld('api', {
     delete: (id) => ipcRenderer.invoke('coord:delete', { id }),
     clear: (payload) => ipcRenderer.invoke('coord:clear', payload)
   },
+  calc: {
+    run: (payload) => ipcRenderer.invoke('calc:run', payload),
+    list: (projectId) => ipcRenderer.invoke('calc:list', { projectId }),
+    clear: (projectId) => ipcRenderer.invoke('calc:clear', { projectId }),
+    onProgress: (cb) => {
+      const listener = (_e, data) => cb(data)
+      ipcRenderer.on('calc:progress', listener)
+      return () => ipcRenderer.removeListener('calc:progress', listener)
+    }
+  },
   file: {
     select: (projectNo) => ipcRenderer.invoke('dialog:select-file', { projectNo }),
     pick: () => ipcRenderer.invoke('dialog:pick-file')

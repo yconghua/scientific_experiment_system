@@ -173,7 +173,37 @@ async function ensureCoordDataTable(conn) {
   await conn.query(COORD_DATA_TABLE_SQL)
 }
 
-// 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import / coord_data 表、幂等插入默认管理员
+// 路径计算结果表（一次计算 = 一个批次，软删除：清除后数据保留不显示）
+const CALC_RESULT_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS \`calc_result\` (
+    \`id\`           BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    \`project_id\`   BIGINT UNSIGNED NOT NULL                COMMENT '所属项目 ID（关联 project.id）',
+    \`project_no\`   VARCHAR(20)     NOT NULL                COMMENT '项目编号（冗余）',
+    \`batch_no\`     VARCHAR(30)     NOT NULL                COMMENT '批次号（一次计算一批），如 JS20260824_0914',
+    \`from_point_id\` BIGINT UNSIGNED NULL                   COMMENT '起点坐标记录 ID（coord_data.id）',
+    \`from_name\`    VARCHAR(100)    NULL                    COMMENT '起点名称（快照）',
+    \`from_lng\`     DECIMAL(10,6)   NOT NULL                COMMENT '起点经度（快照）',
+    \`from_lat\`     DECIMAL(10,6)   NOT NULL                COMMENT '起点纬度（快照）',
+    \`to_point_id\`  BIGINT UNSIGNED NULL                    COMMENT '终点坐标记录 ID（coord_data.id）',
+    \`to_name\`      VARCHAR(100)    NULL                    COMMENT '终点名称（快照）',
+    \`to_lng\`       DECIMAL(10,6)   NOT NULL                COMMENT '终点经度（快照）',
+    \`to_lat\`       DECIMAL(10,6)   NOT NULL                COMMENT '终点纬度（快照）',
+    \`distance\`     DECIMAL(12,3)   NULL                    COMMENT '距离（米），失败为 NULL',
+    \`status\`       VARCHAR(5)      NOT NULL DEFAULT 'ok'   COMMENT '状态：ok 成功 / fail 失败',
+    \`created_by\`   VARCHAR(50)     NOT NULL                COMMENT '创建人账号（当前登录用户 username）',
+    \`created_at\`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    \`is_deleted\`   TINYINT(1)      NOT NULL DEFAULT 0      COMMENT '软删除标记：0 正常 / 1 已清除（数据保留不显示）',
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_project_batch\` (\`project_id\`, \`batch_no\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='路径计算结果表'
+`
+
+// 确保 calc_result 表存在（幂等，供「启动时补齐存量库」复用）
+async function ensureCalcResultTable(conn) {
+  await conn.query(CALC_RESULT_TABLE_SQL)
+}
+
+// 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import / coord_data / calc_result 表、幂等插入默认管理员
 async function initDatabase({ host, port, user, password, database }) {
   // 先连 MySQL 服务（不指定库），用于建库
   const conn = await mysql.createConnection({ host, port, user, password })
@@ -195,6 +225,9 @@ async function initDatabase({ host, port, user, password, database }) {
     // 坐标数据表（起点/终点）
     await ensureCoordDataTable(conn)
 
+    // 路径计算结果表
+    await ensureCalcResultTable(conn)
+
     // 幂等插入默认管理员
     await conn.query(
       `INSERT INTO \`user\` (\`username\`, \`password\`, \`role\`)
@@ -212,5 +245,6 @@ module.exports = {
   initDatabase,
   ensureProjectTable,
   ensureMapDataImportTable,
-  ensureCoordDataTable
+  ensureCoordDataTable,
+  ensureCalcResultTable
 }

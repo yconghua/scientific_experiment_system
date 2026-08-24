@@ -19,9 +19,11 @@ const appPkg = require('../package.json')
 // 默认连接清单（阿里云预设）抽到独立文件，便于不改 main.js 主体即可调整预设
 const { defaultConnections } = require('./db/database_default_connections')
 // 数据库初始化公共模块（建库 + user 表 + 默认管理员），供「添加新数据库」自动初始化
-const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordDataTable } = require('./db/create_new_database')
+const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordDataTable, ensureCalcResultTable } = require('./db/create_new_database')
 // 解析 excel（.xls/.xlsx）坐标数据文件用
 const XLSX = require('xlsx')
+// OSRM 预处理与路由计算模块（node-osrm 官方绑定，进程内运行）
+const calc = require('./osrm/calc')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -707,26 +709,29 @@ ipcMain.handle('dialog:select-file', async (_evt, { projectNo }) => {
     title: '选择路网文件',
     properties: ['openFile'],
     filters: [
-      { name: '路网文件', extensions: ['shp', 'osm', 'json', 'geojson', 'csv', 'txt', 'xml'] },
-      { name: '所有文件', extensions: ['*'] }
+      { name: 'OSM 路网文件', extensions: ['osm', 'pbf'] }
     ]
   })
   if (result.canceled || !result.filePaths || result.filePaths.length === 0) {
     return { success: false, canceled: true, message: '已取消选择' }
   }
   const srcPath = result.filePaths[0]
+  // 兜底校验：只允许 .osm / .osm.pbf（.osm.pbf 以 .pbf 结尾）
+  if (!/\.(osm\.pbf|osm)$/i.test(srcPath)) {
+    return { success: false, canceled: false, message: '只能选择 .osm 或 .osm.pbf 路网文件' }
+  }
   const srcName = path.basename(srcPath)
   const ext = path.extname(srcName)
   const base = path.basename(srcName, ext)
   const destDir = path.join(app.getPath('userData'), 'projects', projectNo)
   try {
     await fs.promises.mkdir(destDir, { recursive: true })
-    // 重名统一改名：原名_YYYYMMDD_HHMM.ext；仍存在则追加序号
-    let destName = `${base}_${fileStamp()}${ext}`
+    // 重名统一改名：时间戳前缀 + 原文件名（YYYYMMDD_HHMM_原名.ext）；仍存在则追加序号
+    let destName = `${fileStamp()}_${base}${ext}`
     let destPath = path.join(destDir, destName)
     let n = 1
     while (fs.existsSync(destPath)) {
-      destName = `${base}_${fileStamp()}_${n}${ext}`
+      destName = `${fileStamp()}_${base}_${n}${ext}`
       destPath = path.join(destDir, destName)
       n++
     }
@@ -994,6 +999,187 @@ ipcMain.handle('dialog:pick-file', async () => {
   return { success: true, canceled: false, path: srcPath, name: path.basename(srcPath) }
 })
 
+// -------------------- IPC：路径计算（calc_result 表） --------------------
+// 全流程：校验 → 预处理路网（node-osrm extract/partition/customize，产物缓存）→ 加载引擎 →
+//         全组合 pairs（起点×终点）→ 并发计算（进度经 calc:progress 事件推送）→ 批量入库（一批一个批次号）。
+// 清除为软删除（is_deleted=1，数据保留不显示）。
+
+// 结果列表（未删除，按批次倒序）
+ipcMain.handle('calc:list', async (_evt, { projectId }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectId) return { success: false, message: '缺少项目' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [rows] = await conn.execute(
+      `SELECT id, batch_no, from_name, from_lng, from_lat, to_name, to_lng, to_lat,
+              distance, status, created_at
+         FROM \`calc_result\`
+        WHERE project_id = ? AND is_deleted = 0 AND created_by = ?
+        ORDER BY batch_no DESC, id ASC`,
+      [projectId, currentUser.username]
+    )
+    return { success: true, records: rows }
+  } catch (err) {
+    console.error('[calc:list] 数据库异常:', err)
+    return { success: false, message: '读取计算结果失败' }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 运行一次完整计算
+ipcMain.handle('calc:run', async (evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const projectId = p.project_id
+  const concurrency = Math.min(Math.max(1, Number(p.concurrency) || 20), 100)
+  const port = Math.min(Math.max(1, Number(p.port) || calc.DEFAULT_PORT), 65535)
+  if (!projectId) return { success: false, message: '缺少项目' }
+  let conn
+  let server = null
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    // 1) 项目必须存在、未删除、且属于当前用户
+    const [projRows] = await conn.execute(
+      'SELECT id, project_no FROM `project` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, currentUser.username]
+    )
+    if (projRows.length === 0) return { success: false, message: '项目不存在或无权操作' }
+    const projectNo = projRows[0].project_no
+
+    // 2) 起点 / 终点坐标数据
+    const [starts] = await conn.execute(
+      'SELECT id, point_name, longitude, latitude FROM `coord_data` WHERE project_id = ? AND point_type = ? AND created_by = ? ORDER BY id ASC',
+      [projectId, 'start', currentUser.username]
+    )
+    const [ends] = await conn.execute(
+      'SELECT id, point_name, longitude, latitude FROM `coord_data` WHERE project_id = ? AND point_type = ? AND created_by = ? ORDER BY id ASC',
+      [projectId, 'end', currentUser.username]
+    )
+    if (starts.length === 0) {
+      return { success: false, message: '该项目还没有起点坐标数据，请先在「加载点位数据-起点坐标数据」中导入' }
+    }
+    if (ends.length === 0) {
+      return { success: false, message: '该项目还没有终点坐标数据，请先在「加载点位数据-终点坐标数据」中导入' }
+    }
+
+    // 3) 路网文件（road_file_copy_path）
+    const [roadRows] = await conn.execute(
+      'SELECT road_file_copy_path FROM `map_data_import` WHERE project_id = ? AND import_type = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, 'road', currentUser.username]
+    )
+    if (roadRows.length === 0 || !roadRows[0].road_file_copy_path) {
+      return { success: false, message: '该项目还没有路网数据，请先在「地图数据导入-路网导入」中导入路网文件' }
+    }
+    const osmPath = roadRows[0].road_file_copy_path
+    if (!fs.existsSync(osmPath)) return { success: false, message: '路网文件不存在或已被移动，请重新导入' }
+    if (!/\.(osm\.pbf|osm)$/i.test(osmPath)) {
+      return { success: false, message: '路网文件必须是 .osm 或 .osm.pbf 格式' }
+    }
+
+    // 4) 预处理 + 加载引擎（阶段文案经进度事件推送）
+    const sendStage = (msg) => evt.sender.send('calc:progress', { stage: msg })
+    sendStage('正在预处理路网…')
+    const osrmFilePath = await calc.ensureProcessed(osmPath, (s) => {
+      sendStage(s === 'extract' ? '正在预处理路网（osrm-extract）…' : s === 'partition' ? '正在预处理路网（osrm-partition）…' : '正在预处理路网（osrm-customize）…')
+    })
+    sendStage('正在启动 OSRM 服务…')
+    server = await calc.startServer(osrmFilePath, port)
+
+    // 5) 全组合 pairs（起点 × 终点）
+    const pairs = []
+    for (const s of starts) {
+      for (const e of ends) {
+        pairs.push({
+          from: { id: s.id, name: s.point_name || '', lng: Number(s.longitude), lat: Number(s.latitude) },
+          to: { id: e.id, name: e.point_name || '', lng: Number(e.longitude), lat: Number(e.latitude) }
+        })
+      }
+    }
+
+    // 6) 并发计算（进度节流：每完成 5 对推一次，最后一对必推）
+    sendStage('计算中…')
+    const total = pairs.length
+    let lastDone = 0
+    const results = await calc.batchCompute(pairs, port, concurrency, (done) => {
+      if (done - lastDone >= 5 || done === total) {
+        lastDone = done
+        evt.sender.send('calc:progress', { done, total })
+      }
+    })
+
+    // 7) 结果批量入库（一个批次）
+    const batchNo = 'JS' + fileStamp()
+    await conn.beginTransaction()
+    let okCount = 0
+    let failCount = 0
+    let totalDistanceM = 0
+    for (const r of results) {
+      const ok = r.distance !== null && r.distance !== undefined
+      if (ok) {
+        okCount++
+        totalDistanceM += r.distance
+      } else {
+        failCount++
+      }
+      await conn.execute(
+        `INSERT INTO \`calc_result\`
+          (\`project_id\`, \`project_no\`, \`batch_no\`,
+           \`from_point_id\`, \`from_name\`, \`from_lng\`, \`from_lat\`,
+           \`to_point_id\`, \`to_name\`, \`to_lng\`, \`to_lat\`,
+           \`distance\`, \`status\`, \`created_by\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          projectId, projectNo, batchNo,
+          r.from.id, r.from.name || null, r.from.lng, r.from.lat,
+          r.to.id, r.to.name || null, r.to.lng, r.to.lat,
+          ok ? r.distance : null, ok ? 'ok' : 'fail', currentUser.username
+        ]
+      )
+    }
+    await conn.commit()
+    return {
+      success: true,
+      message: '计算完成：共 ' + total + ' 对，成功 ' + okCount + '，失败 ' + failCount,
+      batchNo,
+      total,
+      okCount,
+      failCount,
+      totalDistanceKm: Math.round((totalDistanceM / 1000) * 1000) / 1000
+    }
+  } catch (err) {
+    console.error('[calc:run] 计算异常:', err)
+    if (conn) await conn.rollback().catch(() => {})
+    return { success: false, message: '计算失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    // 无论成功失败，计算结束都销毁本次启动的 OSRM 服务进程
+    if (server) await calc.stopServer(server).catch(() => {})
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 清除结果（软删除该项目全部结果，数据保留）
+ipcMain.handle('calc:clear', async (_evt, { projectId }) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  if (!projectId) return { success: false, message: '缺少项目' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [result] = await conn.execute(
+      'UPDATE `calc_result` SET `is_deleted` = 1 WHERE project_id = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, currentUser.username]
+    )
+    const n = result ? Number(result.affectedRows) : 0
+    return { success: true, message: n > 0 ? '计算结果已清除' : '暂无计算结果可清除' }
+  } catch (err) {
+    console.error('[calc:clear] 数据库异常:', err)
+    return { success: false, message: '清除失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
 // -------------------- IPC：系统管理（仅管理员可用） --------------------
 // 系统名称 / 版本号：来自 package.json，写活不硬编码
 ipcMain.handle('sys:info', async () => {
@@ -1080,6 +1266,7 @@ async function ensureActiveDbTables() {
     await ensureProjectTable(conn)
     await ensureMapDataImportTable(conn)
     await ensureCoordDataTable(conn)
+    await ensureCalcResultTable(conn)
   } catch (e) {
     console.error('[ensureActiveDbTables] 表确保失败（请检查数据库连接）：', e)
   } finally {
