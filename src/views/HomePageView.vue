@@ -3,7 +3,7 @@
     <!-- 顶部：欢迎语横幅 -->
     <section class="hp-hero">
       <div class="hp-hero-inner">
-        <h1 class="hp-greeting">{{ greeting }}，葱花</h1>
+        <h1 class="hp-greeting">{{ greeting }}</h1>
         <p class="hp-date">{{ todayText }}</p>
       </div>
     </section>
