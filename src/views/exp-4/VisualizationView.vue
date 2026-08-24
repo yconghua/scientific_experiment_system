@@ -176,7 +176,7 @@ async function initApiMap() {
     map = L.map(mapEl.value, {
       center: [28.682, 115.857], // 初值，下面按边界自适应
       zoom: 9,
-      attributionControl: true,
+      attributionControl: false, // 隐藏右下角版权/归属 logo
       zoomControl: true
     })
 
@@ -223,8 +223,12 @@ async function initApiMap() {
       }
     }).addTo(map)
 
+    // 让地图视野刚好贴合行政区域：
+    // 1) 先 invalidateSize 确保容器尺寸已就绪，否则 fitBounds 会失效并回退到初始错误中心/缩放；
+    // 2) 按行政边界自适应，padding 留少量边距使区域贴满视图，maxZoom 防止小区域被过度放大
+    map.invalidateSize()
     if (boundaryLayer.getBounds().isValid()) {
-      map.fitBounds(boundaryLayer.getBounds(), { padding: [20, 20] })
+      map.fitBounds(boundaryLayer.getBounds(), { padding: [16, 16], maxZoom: 16 })
     }
 
     // 叠加起终点
