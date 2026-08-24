@@ -114,15 +114,20 @@ async function initApiMap() {
 
   // 1) 初始化地图（高德瓦片，国内访问快、无需 key）
   map = L.map(mapEl.value, { zoomControl: true }).setView([28.19, 112.97], 8)
+  map.getContainer().style.backgroundColor = '#ffffff'
+
   L.tileLayer(
-    'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=8&x={x}&y={y}&z={z}',
+    'https://webrd0{s}.is.autonavi.com/appmaptile?lang=zh_cn&size=1&scale=1&style=7&x={x}&y={y}&z={z}',
     { subdomains: '1234', maxZoom: 18, attribution: '高德地图' }
   ).addTo(map)
+
 
   const allPoints = []
 
   // 2) 市行政区域边界（统一走主进程 IPC：主进程请求 DataV，开发/生产一致，无跨域、不依赖 Vite 代理）
-  const cityCode = currentProject.value && currentProject.value.city_code
+  // 城市编码规整为 6 位：6 位不变；4 位末尾补 00；其他位数补 0 至 6 位
+  const cityCodeRaw = currentProject.value && currentProject.value.city_code
+  const cityCode = cityCodeRaw ? String(cityCodeRaw).padEnd(6, '0') : null
   if (cityCode) {
     try {
       const res = await getCityBoundary(cityCode)
@@ -131,6 +136,7 @@ async function initApiMap() {
         boundaryLayer = L.geoJSON(geo, {
           style: { color: '#0d80e0', weight: 2, fillColor: '#0d80e0', fillOpacity: 0.08 }
         }).addTo(map)
+        addMaskWithTurf(geo, map);
         map.fitBounds(boundaryLayer.getBounds())
       } else {
         mapError.value = (res && res.message) || '行政区域边界加载失败，请检查网络'

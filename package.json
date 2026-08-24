@@ -16,11 +16,14 @@
     "pack": "npm run build && electron-builder"
   },
   "dependencies": {
+    "@turf/turf": "^7.4.0",
     "bcryptjs": "^2.4.3",
     "element-china-area-data": "^6.1.0",
     "geodesy": "^2.4.0",
     "geojson-path-finder": "^2.1.0",
+    "greiner-hormann": "^1.5.0",
     "leaflet": "^1.9.4",
+    "leaflet-providers": "^3.0.0",
     "mysql2": "^3.11.0",
     "vue": "^3.4.27",
     "vue-router": "^4.3.2",
