@@ -40,7 +40,7 @@
     "wait-on": "^7.2.0"
   },
   "build": {
-    "appId": "com.conghua.studio",
+    "appId": "com.ses",
     "productName": "Scientific Experiment System",
     "icon": "build/icon.ico",
     "files": [
