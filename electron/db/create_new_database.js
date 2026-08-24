@@ -189,6 +189,7 @@ const CALC_RESULT_TABLE_SQL = `
     \`to_lng\`       DECIMAL(10,6)   NOT NULL                COMMENT '终点经度（快照）',
     \`to_lat\`       DECIMAL(10,6)   NOT NULL                COMMENT '终点纬度（快照）',
     \`distance\`     DECIMAL(12,3)   NULL                    COMMENT '距离（米），失败为 NULL',
+    \`duration\`     DECIMAL(12,3)   NULL                    COMMENT '时长（秒），失败为 NULL（路网计算无此值）',
     \`status\`       VARCHAR(5)      NOT NULL DEFAULT 'ok'   COMMENT '状态：ok 成功 / fail 失败',
     \`created_by\`   VARCHAR(50)     NOT NULL                COMMENT '创建人账号（当前登录用户 username）',
     \`created_at\`   DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -198,9 +199,15 @@ const CALC_RESULT_TABLE_SQL = `
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='路径计算结果表'
 `
 
-// 确保 calc_result 表存在（幂等，供「启动时补齐存量库」复用）
+// 确保 calc_result 表存在（幂等，供「启动时补齐存量库」复用；旧表补 duration 列）
 async function ensureCalcResultTable(conn) {
   await conn.query(CALC_RESULT_TABLE_SQL)
+  await ensureColumn(
+    conn,
+    'calc_result',
+    'duration',
+    '`duration` DECIMAL(12,3) NULL COMMENT \'时长（秒），失败为 NULL（路网计算无此值）\''
+  )
 }
 
 // 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import / coord_data / calc_result 表、幂等插入默认管理员

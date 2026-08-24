@@ -24,6 +24,8 @@ const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordD
 const XLSX = require('xlsx')
 // OSRM 预处理与路由计算模块（node-osrm 官方绑定，进程内运行）
 const calc = require('./osrm/calc')
+// 地图 API 距离计算模块（API 导入分支，独立于 OSRM）
+const apiCalc = require('./mapapi/calc')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -1013,7 +1015,7 @@ ipcMain.handle('calc:list', async (_evt, { projectId }) => {
     conn = await mysql.createConnection(activeDbConfig)
     const [rows] = await conn.execute(
       `SELECT id, batch_no, from_name, from_lng, from_lat, to_name, to_lng, to_lat,
-              distance, status, created_at
+              distance, duration, status, created_at
          FROM \`calc_result\`
         WHERE project_id = ? AND is_deleted = 0 AND created_by = ?
         ORDER BY batch_no DESC, id ASC`,
@@ -1175,6 +1177,148 @@ ipcMain.handle('calc:clear', async (_evt, { projectId }) => {
   } catch (err) {
     console.error('[calc:clear] 数据库异常:', err)
     return { success: false, message: '清除失败：' + (err && err.message ? err.message : '请稍后重试') }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// -------------------- IPC：地图 API 距离计算（API 导入分支，独立于 OSRM） --------------------
+// 流程：校验 → 按平台拼完整 URL（基础网址 + 页面传入的参数模板）→ 全组合 pairs →
+//       并发请求地图 API（进度经 calc:progress 推送）→ 入库（含 duration，batch_no=AP+时间戳）
+ipcMain.handle('apiCalc:run', async (evt, payload) => {
+  if (!currentUser) return { success: false, message: '未登录，请重新登录' }
+  const p = payload || {}
+  const projectId = p.project_id
+  const concurrency = Math.min(Math.max(1, Number(p.concurrency) || 10), 50)
+  const timeoutMs = Math.min(Math.max(1, Number(p.timeout) || 10), 120) * 1000
+  const paramTemplate = String(p.param_template || '').trim()
+  if (!projectId) return { success: false, message: '缺少项目' }
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    // 1) 项目
+    const [projRows] = await conn.execute(
+      'SELECT id, project_no FROM `project` WHERE id = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, currentUser.username]
+    )
+    if (projRows.length === 0) return { success: false, message: '项目不存在或无权操作' }
+    const projectNo = projRows[0].project_no
+
+    // 2) 起点 / 终点坐标数据
+    const [starts] = await conn.execute(
+      'SELECT id, point_name, longitude, latitude FROM `coord_data` WHERE project_id = ? AND point_type = ? AND created_by = ? ORDER BY id ASC',
+      [projectId, 'start', currentUser.username]
+    )
+    const [ends] = await conn.execute(
+      'SELECT id, point_name, longitude, latitude FROM `coord_data` WHERE project_id = ? AND point_type = ? AND created_by = ? ORDER BY id ASC',
+      [projectId, 'end', currentUser.username]
+    )
+    if (starts.length === 0) {
+      return { success: false, message: '该项目还没有起点坐标数据，请先在「加载点位数据-起点坐标数据」中导入' }
+    }
+    if (ends.length === 0) {
+      return { success: false, message: '该项目还没有终点坐标数据，请先在「加载点位数据-终点坐标数据」中导入' }
+    }
+
+    // 3) API 导入记录（api_platform / api_key / api_url）
+    const [apiRows] = await conn.execute(
+      'SELECT api_platform, api_key, api_url FROM `map_data_import` WHERE project_id = ? AND import_type = ? AND is_deleted = 0 AND created_by = ?',
+      [projectId, 'api', currentUser.username]
+    )
+    if (apiRows.length === 0) {
+      return { success: false, message: '该项目还没有 API 导入记录，请先在「地图数据导入-api导入」中配置' }
+    }
+    const apiRec = apiRows[0]
+    if (!apiRec.api_platform || !apiRec.api_key || !apiRec.api_url) {
+      return { success: false, message: 'API 导入记录不完整（平台 / Key / 网址），请重新导入' }
+    }
+
+    // 4) 拼完整 URL（校验参数模板占位符）
+    let fullTemplate
+    try {
+      fullTemplate = apiCalc.buildFullUrl(apiRec.api_url, paramTemplate)
+    } catch (err) {
+      return { success: false, message: err.message }
+    }
+
+    // 5) 全组合 pairs
+    const pairs = []
+    for (const s of starts) {
+      for (const e of ends) {
+        pairs.push({
+          from: { id: s.id, name: s.point_name || '', lng: Number(s.longitude), lat: Number(s.latitude) },
+          to: { id: e.id, name: e.point_name || '', lng: Number(e.longitude), lat: Number(e.latitude) }
+        })
+      }
+    }
+
+    // 6) 并发计算（进度节流）
+    const sendStage = (msg) => evt.sender.send('calc:progress', { stage: msg })
+    sendStage('计算中…')
+    const total = pairs.length
+    let lastDone = 0
+    const results = await apiCalc.batchCompute(
+      pairs,
+      fullTemplate,
+      apiRec.api_key,
+      apiRec.api_platform,
+      concurrency,
+      timeoutMs,
+      (done) => {
+        if (done - lastDone >= 5 || done === total) {
+          lastDone = done
+          evt.sender.send('calc:progress', { done, total })
+        }
+      }
+    )
+
+    // 7) 结果批量入库（一个批次，含 duration）
+    const batchNo = 'AP' + fileStamp()
+    await conn.beginTransaction()
+    let okCount = 0
+    let failCount = 0
+    let totalDistanceM = 0
+    let totalDurationS = 0
+    for (const r of results) {
+      const ok = r.distance !== null && r.distance !== undefined && !r.error
+      if (ok) {
+        okCount++
+        totalDistanceM += r.distance
+        if (r.duration !== null && r.duration !== undefined) totalDurationS += r.duration
+      } else {
+        failCount++
+      }
+      await conn.execute(
+        `INSERT INTO \`calc_result\`
+          (\`project_id\`, \`project_no\`, \`batch_no\`,
+           \`from_point_id\`, \`from_name\`, \`from_lng\`, \`from_lat\`,
+           \`to_point_id\`, \`to_name\`, \`to_lng\`, \`to_lat\`,
+           \`distance\`, \`duration\`, \`status\`, \`created_by\`)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          projectId, projectNo, batchNo,
+          r.from.id, r.from.name || null, r.from.lng, r.from.lat,
+          r.to.id, r.to.name || null, r.to.lng, r.to.lat,
+          ok ? r.distance : null, ok ? (r.duration != null ? r.duration : null) : null,
+          ok ? 'ok' : 'fail', currentUser.username
+        ]
+      )
+    }
+    await conn.commit()
+    return {
+      success: true,
+      message: '计算完成：共 ' + total + ' 对，成功 ' + okCount + '，失败 ' + failCount,
+      batchNo,
+      total,
+      okCount,
+      failCount,
+      totalDistanceKm: Math.round((totalDistanceM / 1000) * 1000) / 1000,
+      totalDurationS: Math.round(totalDurationS)
+    }
+  } catch (err) {
+    console.error('[apiCalc:run] 计算异常:', err)
+    if (conn) await conn.rollback().catch(() => {})
+    return { success: false, message: '计算失败：' + (err && err.message ? err.message : '请稍后重试') }
   } finally {
     if (conn) await conn.end().catch(() => {})
   }

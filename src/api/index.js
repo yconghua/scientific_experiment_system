@@ -131,6 +131,11 @@ export function runCalc(payload) {
   return window.api.calc.run(payload)
 }
 
+// 地图 API 距离计算（API 导入分支）
+export function runApiCalc(payload) {
+  return window.api.calc.apiRun(payload)
+}
+
 export function listCalcResults(projectId) {
   return window.api.calc.list(projectId)
 }

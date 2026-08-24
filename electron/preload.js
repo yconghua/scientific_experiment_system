@@ -48,6 +48,7 @@ contextBridge.exposeInMainWorld('api', {
   },
   calc: {
     run: (payload) => ipcRenderer.invoke('calc:run', payload),
+    apiRun: (payload) => ipcRenderer.invoke('apiCalc:run', payload),
     list: (projectId) => ipcRenderer.invoke('calc:list', { projectId }),
     clear: (projectId) => ipcRenderer.invoke('calc:clear', { projectId }),
     onProgress: (cb) => {
