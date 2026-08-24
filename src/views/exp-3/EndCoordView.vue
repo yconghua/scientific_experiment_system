@@ -1,6 +1,6 @@
 <template>
   <div class="module">
-    <h2 class="module-title">终点坐标数据</h2>
+    <h2 class="module-title">终点坐标数据（WGS84坐标系）</h2>
     <p class="module-tip">选择项目后导入终点坐标文件（txt / csv / excel），提交时解析文件内容并存入数据库。</p>
 
     <!-- 项目选择 -->
