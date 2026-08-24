@@ -4,8 +4,6 @@
 
 ---
 
-# 科研实验系统（Scientific Experiment System）
-
 一个本地运行的科研实验桌面应用：以“项目”为单位，完成 **地图数据导入 → 坐标数据处理 → 路径距离计算 → 结果可视化** 的全流程。基于 Electron + Vue 3 + MySQL 构建，Electron 主进程即后端，直连数据库，无需部署独立服务。
 
 ![version](https://img.shields.io/badge/version-1.3.2-blue)
