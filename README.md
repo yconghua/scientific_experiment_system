@@ -164,6 +164,6 @@ npm run dev
 
 [MIT](https://opensource.org/licenses/MIT) © conghua
 
-## Star 历史
+## Star
 
 [![Star History Chart](https://api.star-history.com/svg?repos=yconghua/scientific_experiment_system&type=Date)](https://star-history.com/#yconghua/scientific_experiment_system&Date)
