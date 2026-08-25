@@ -63,5 +63,9 @@ contextBridge.exposeInMainWorld('api', {
   },
   viz: {
     boundary: (cityCode) => ipcRenderer.invoke('viz:boundary', { cityCode })
+  },
+  log: {
+    list: (payload) => ipcRenderer.invoke('log:list', payload),
+    console: (level, text) => ipcRenderer.invoke('log:console', { level, text })
   }
 })

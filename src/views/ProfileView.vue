@@ -143,6 +143,83 @@
           </div>
         </section>
       </div>
+      <!-- 运行日志（仅管理员） -->
+      <div v-show="activeTab === 'log'">
+        <section class="card card-wide">
+          <div class="card-head">
+            <h3 class="card-title">运行日志</h3>
+            <button class="save-btn ghost" @click="loadLogs">↻ 刷新</button>
+          </div>
+
+          <!-- 筛选 -->
+          <div class="log-filter">
+            <select v-model="logFilters.source" class="field-input log-filter-item" @change="onLogFilterChange">
+              <option value="">全部来源</option>
+              <option value="business">业务日志</option>
+              <option value="console">console 日志</option>
+            </select>
+            <select v-model="logFilters.level" class="field-input log-filter-item" @change="onLogFilterChange">
+              <option value="">全部级别</option>
+              <option value="info">info</option>
+              <option value="success">success</option>
+              <option value="warn">warn</option>
+              <option value="error">error</option>
+            </select>
+            <input v-model="logFilters.module" class="field-input log-filter-item" type="text" placeholder="模块（如 auth / calc / console）" @change="onLogFilterChange" />
+            <input v-model="logFilters.keyword" class="field-input log-filter-item log-filter-kw" type="text" placeholder="关键词（消息 / 详情）" @change="onLogFilterChange" />
+          </div>
+
+          <div class="table-scroll" v-if="logRecords.length">
+            <table class="data-table log-table">
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>来源</th>
+                  <th>级别</th>
+                  <th>模块 / 动作</th>
+                  <th>消息</th>
+                  <th>用户</th>
+                  <th>耗时</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template v-for="r in logRecords" :key="r.id">
+                  <tr class="log-row" @click="toggleLogDetail(r.id)">
+                    <td class="log-time">{{ r.created_at }}</td>
+                    <td>
+                      <span class="badge" :class="r.source === 'console' ? 'off' : 'on'">{{ r.source === 'console' ? 'console' : '业务' }}</span>
+                    </td>
+                    <td><span class="log-level" :class="'lv-' + r.level">{{ r.level }}</span></td>
+                    <td class="log-module">{{ r.module }}<span v-if="r.action"> / {{ r.action }}</span></td>
+                    <td class="log-msg">{{ r.message }}</td>
+                    <td>{{ r.created_by || '—' }}</td>
+                    <td>{{ r.cost_ms != null ? r.cost_ms + 'ms' : '—' }}</td>
+                  </tr>
+                  <tr v-if="expandedLogId === r.id" class="log-detail-row">
+                    <td colspan="7">
+                      <div class="log-detail">
+                        <div class="log-detail-kv"><b>详情：</b><span class="log-detail-text">{{ r.detail || '（无）' }}</span></div>
+                        <div class="log-detail-kv" v-if="r.batch_no"><b>批次：</b>{{ r.batch_no }}</div>
+                        <div class="log-detail-kv" v-if="r.project_id != null"><b>项目 ID：</b>{{ r.project_id }}</div>
+                        <div class="log-detail-kv"><b>版本：</b>{{ r.app_version || '—' }}</div>
+                      </div>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+          <p v-else-if="logLoading" class="empty-tip">加载中…</p>
+          <p v-else class="empty-tip">暂无日志数据</p>
+
+          <!-- 分页 -->
+          <div class="pagination" v-if="logTotalPages > 1">
+            <button class="page-btn" :disabled="logPage <= 1" @click="logGoPage(logPage - 1)">上一页</button>
+            <span class="page-info">第 {{ logPage }} 页 / 共 {{ logTotalPages }} 页（共 {{ logTotal }} 条）</span>
+            <button class="page-btn" :disabled="logPage >= logTotalPages" @click="logGoPage(logPage + 1)">下一页</button>
+          </div>
+        </section>
+      </div>
     </div>
 
     <!-- 新增用户弹窗：填账号 + 选角色 -->
@@ -310,7 +387,8 @@ import {
   updateUser,
   deleteUser,
   getSysInfo,
-  getDbInfo
+  getDbInfo,
+  listRunLogs
 } from '../api'
 
 const user = ref(JSON.parse(localStorage.getItem('conghua_user') || 'null'))
@@ -334,6 +412,7 @@ const tabs = computed(() => {
   if (isAdmin.value) {
     base.push({ key: 'users', label: '用户管理' })
     base.push({ key: 'sys', label: '系统管理' })
+    base.push({ key: 'log', label: '运行日志' })
   }
   return base
 })
@@ -597,7 +676,55 @@ async function onConfirmDel() {
 // 切到用户管理页签时加载数据
 watch(activeTab, (t) => {
   if (t === 'users') loadUsers()
+  if (t === 'log') loadLogs()
 })
+
+// -------------------- 运行日志（仅管理员） --------------------
+const logFilters = ref({ source: '', level: '', module: '', keyword: '' })
+const logRecords = ref([])
+const logTotal = ref(0)
+const logPage = ref(1)
+const logPageSize = 20
+const logLoading = ref(false)
+const expandedLogId = ref(null)
+
+const logTotalPages = computed(() => Math.max(1, Math.ceil(logTotal.value / logPageSize)))
+
+function toggleLogDetail(id) {
+  expandedLogId.value = expandedLogId.value === id ? null : id
+}
+
+async function loadLogs() {
+  logLoading.value = true
+  try {
+    const res = await listRunLogs({
+      page: logPage.value,
+      pageSize: logPageSize,
+      source: logFilters.value.source || '',
+      level: logFilters.value.level || '',
+      module: logFilters.value.module || '',
+      keyword: logFilters.value.keyword || ''
+    })
+    if (res && res.success) {
+      logRecords.value = res.records || []
+      logTotal.value = Number(res.total) || 0
+    }
+  } catch (e) {
+    // 忽略读取异常
+  } finally {
+    logLoading.value = false
+  }
+}
+
+function onLogFilterChange() {
+  logPage.value = 1
+  loadLogs()
+}
+
+function logGoPage(p) {
+  logPage.value = Math.min(Math.max(1, p), logTotalPages.value)
+  loadLogs()
+}
 onMounted(async () => {
   // 重新拉取当前登录用户，与数据库保持一致
   try {
@@ -1096,5 +1223,74 @@ onMounted(async () => {
   font-size: 13px;
   color: #4e5969;
   padding: 0 4px;
+}
+
+/* 运行日志 */
+.log-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+.log-filter-item {
+  width: 140px;
+  height: 38px;
+}
+.log-filter-kw {
+  width: 220px;
+}
+.log-row {
+  cursor: pointer;
+}
+.log-time {
+  white-space: nowrap;
+  color: #86909c;
+  font-size: 12px;
+}
+.log-module {
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
+}
+.log-msg {
+  max-width: 340px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.log-level {
+  display: inline-block;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #eef0f3;
+  color: #6b7280;
+}
+.log-level.lv-success {
+  background: #e8f7ee;
+  color: #19a558;
+}
+.log-level.lv-warn {
+  background: #fff7e6;
+  color: #d46b08;
+}
+.log-level.lv-error {
+  background: #fdecea;
+  color: #ea4335;
+}
+.log-detail-row td {
+  background: #fafbfc;
+}
+.log-detail {
+  font-size: 13px;
+  color: #4e5969;
+  line-height: 1.7;
+}
+.log-detail-kv {
+  margin-bottom: 4px;
+}
+.log-detail-text {
+  word-break: break-all;
+  font-family: Consolas, Monaco, monospace;
+  font-size: 12px;
 }
 </style>

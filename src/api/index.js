@@ -153,3 +153,13 @@ export function onCalcProgress(cb) {
 export function getCityBoundary(cityCode) {
   return window.api.viz.boundary(cityCode)
 }
+
+// 运行日志（仅管理员可查：分页 + source/level/module/关键词 筛选）
+export function listRunLogs(payload) {
+  return window.api.log.list(payload)
+}
+
+// 渲染进程 console 上报（source=console）
+export function reportConsoleLog(level, text) {
+  return window.api.log.console(level, text)
+}

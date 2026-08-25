@@ -210,6 +210,37 @@ async function ensureCalcResultTable(conn) {
   )
 }
 
+// 运行日志表（业务日志 + Electron console 日志统一入库，source 字段区分）
+const RUN_LOG_TABLE_SQL = `
+  CREATE TABLE IF NOT EXISTS \`run_log\` (
+    \`id\`          BIGINT UNSIGNED NOT NULL AUTO_INCREMENT COMMENT '主键',
+    \`source\`      VARCHAR(20)     NOT NULL DEFAULT 'business' COMMENT '来源：business 业务日志 / console Electron console 日志',
+    \`module\`      VARCHAR(50)     NOT NULL DEFAULT '' COMMENT '模块，如 auth/project/calc/console:main',
+    \`action\`      VARCHAR(50)     NOT NULL DEFAULT '' COMMENT '动作，如 login/create/run/list',
+    \`level\`       VARCHAR(10)     NOT NULL DEFAULT 'info' COMMENT '级别：info / success / warn / error',
+    \`success\`     TINYINT(1)      NOT NULL DEFAULT 1 COMMENT '是否成功：1 成功 / 0 失败',
+    \`message\`     VARCHAR(500)    NOT NULL DEFAULT '' COMMENT '简短描述',
+    \`detail\`      TEXT            NULL COMMENT '详细内容（错误堆栈 / 失败原因 / 参数摘要）',
+    \`project_id\`  BIGINT UNSIGNED NULL COMMENT '关联项目 ID',
+    \`batch_no\`    VARCHAR(30)     NULL COMMENT '关联计算批次号',
+    \`created_by\`  VARCHAR(50)     NOT NULL DEFAULT '' COMMENT '操作用户账号',
+    \`cost_ms\`     INT UNSIGNED    NULL COMMENT '耗时（毫秒）',
+    \`app_version\` VARCHAR(20)     NULL COMMENT '系统版本号',
+    \`created_at\`  DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    PRIMARY KEY (\`id\`),
+    KEY \`idx_created_at\` (\`created_at\`),
+    KEY \`idx_project\` (\`project_id\`),
+    KEY \`idx_module_action\` (\`module\`, \`action\`),
+    KEY \`idx_level\` (\`level\`),
+    KEY \`idx_source\` (\`source\`)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='运行日志表（业务 + console）'
+`
+
+// 确保 run_log 表存在（幂等，供「启动时补齐存量库」复用）
+async function ensureRunLogTable(conn) {
+  await conn.query(RUN_LOG_TABLE_SQL)
+}
+
 // 初始化目标库：库不存在则自动创建，随后建 user / project / map_data_import / coord_data / calc_result 表、幂等插入默认管理员
 async function initDatabase({ host, port, user, password, database }) {
   // 先连 MySQL 服务（不指定库），用于建库
@@ -235,6 +266,9 @@ async function initDatabase({ host, port, user, password, database }) {
     // 路径计算结果表
     await ensureCalcResultTable(conn)
 
+    // 运行日志表
+    await ensureRunLogTable(conn)
+
     // 幂等插入默认管理员
     await conn.query(
       `INSERT INTO \`user\` (\`username\`, \`password\`, \`role\`)
@@ -253,5 +287,6 @@ module.exports = {
   ensureProjectTable,
   ensureMapDataImportTable,
   ensureCoordDataTable,
-  ensureCalcResultTable
+  ensureCalcResultTable,
+  ensureRunLogTable
 }

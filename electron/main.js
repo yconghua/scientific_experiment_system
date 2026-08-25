@@ -19,13 +19,15 @@ const appPkg = require('../package.json')
 // 默认连接清单（阿里云预设）抽到独立文件，便于不改 main.js 主体即可调整预设
 const { defaultConnections } = require('./db/database_default_connections')
 // 数据库初始化公共模块（建库 + user 表 + 默认管理员），供「添加新数据库」自动初始化
-const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordDataTable, ensureCalcResultTable } = require('./db/create_new_database')
+const { initDatabase, ensureProjectTable, ensureMapDataImportTable, ensureCoordDataTable, ensureCalcResultTable, ensureRunLogTable } = require('./db/create_new_database')
 // 解析 excel（.xls/.xlsx）坐标数据文件用
 const XLSX = require('xlsx')
 // OSRM 预处理与路由计算模块（node-osrm 官方绑定，进程内运行）
 const calc = require('./osrm/calc')
 // 地图 API 距离计算模块（API 导入分支，独立于 OSRM）
 const apiCalc = require('./mapapi/calc')
+// 运行日志模块（业务 + console 日志统一写库，source 区分）
+const runLog = require('./log')
 
 const isDev = !app.isPackaged
 const DEV_URL = 'http://localhost:5173'
@@ -167,6 +169,22 @@ const ROLE_ADMIN = 'admin'
 // 管理员（可进用户管理）
 function isAdmin() {
   return !!currentUser && currentUser.role === ROLE_ADMIN
+}
+
+// ---------------- 运行日志接入 ----------------
+// 注入惰性 getter（每次写库都取最新 activeDbConfig / currentUser）
+runLog.init({
+  getConfig: () => activeDbConfig,
+  getCurrentUser: () => currentUser,
+  appVersion: appPkg.version
+})
+// 主进程 console 输出全量入库（source=console）
+runLog.hookConsole()
+// 统一包装所有 IPC handler 自动记日志（log: 通道除外，避免自记 / 递归）
+const _ipcHandle = ipcMain.handle.bind(ipcMain)
+ipcMain.handle = (channel, handler) => {
+  if (String(channel).startsWith('log:')) return _ipcHandle(channel, handler)
+  return _ipcHandle(channel, runLog.wrap(channel, handler))
 }
 /** 创建主窗口：固定 1100×750，不可缩放、不可最大化、居中 */
 function createWindow() {
@@ -1141,6 +1159,21 @@ ipcMain.handle('calc:run', async (evt, payload) => {
       )
     }
     await conn.commit()
+    // 失败明细日志：每个失败的点对记一条（成功已在 wrap 中按批次汇总）
+    for (const r of results) {
+      if (r.distance === null || r.distance === undefined) {
+        runLog.write({
+          module: 'calc',
+          action: 'run-fail',
+          level: 'error',
+          success: 0,
+          message: (r.from.name || '起点') + ' → ' + (r.to.name || '终点') + ' 计算失败',
+          detail: '起点(' + r.from.lng + ', ' + r.from.lat + ') → 终点(' + r.to.lng + ', ' + r.to.lat + ')，无可用路线或请求失败',
+          project_id: projectId,
+          batch_no: batchNo
+        })
+      }
+    }
     return {
       success: true,
       message: '计算完成：共 ' + total + ' 对，成功 ' + okCount + '，失败 ' + failCount,
@@ -1305,6 +1338,21 @@ ipcMain.handle('apiCalc:run', async (evt, payload) => {
       )
     }
     await conn.commit()
+    // 失败明细日志：每个失败的点对记一条（成功已在 wrap 中按批次汇总）
+    for (const r of results) {
+      if (r.distance === null || r.distance === undefined || r.error) {
+        runLog.write({
+          module: 'apicalc',
+          action: 'run-fail',
+          level: 'error',
+          success: 0,
+          message: (r.from.name || '起点') + ' → ' + (r.to.name || '终点') + ' 计算失败',
+          detail: '起点(' + r.from.lng + ', ' + r.from.lat + ') → 终点(' + r.to.lng + ', ' + r.to.lat + ')；原因：' + (r.error || '未知'),
+          project_id: projectId,
+          batch_no: batchNo
+        })
+      }
+    }
     return {
       success: true,
       message: '计算完成：共 ' + total + ' 对，成功 ' + okCount + '，失败 ' + failCount,
@@ -1421,6 +1469,63 @@ ipcMain.handle('sys:delete-db', async (_evt, { id }) => {
   return deleteConnection(id)
 })
 
+// -------------------- IPC：运行日志（仅管理员可查） --------------------
+// log:* 通道不参与统一日志包装（避免自记 / 递归）
+// 分页查询 + 筛选（source / level / module / 关键词），按 id 倒序
+ipcMain.handle('log:list', async (_evt, payload) => {
+  if (!isAdmin()) return { success: false, message: '无权限：仅管理员可查看运行日志' }
+  const p = payload || {}
+  const page = Math.max(1, Number(p.page) || 1)
+  const pageSize = Math.min(Math.max(1, Number(p.pageSize) || 20), 200)
+  const where = []
+  const params = []
+  if (p.source) {
+    where.push('source = ?')
+    params.push(p.source)
+  }
+  if (p.level) {
+    where.push('level = ?')
+    params.push(p.level)
+  }
+  if (p.module) {
+    where.push('module LIKE ?')
+    params.push('%' + p.module + '%')
+  }
+  if (p.keyword) {
+    where.push('(message LIKE ? OR detail LIKE ?)')
+    const kw = '%' + p.keyword + '%'
+    params.push(kw, kw)
+  }
+  const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : ''
+  let conn
+  try {
+    conn = await mysql.createConnection(activeDbConfig)
+    const [cntRows] = await conn.execute(`SELECT COUNT(*) AS c FROM \`run_log\` ${whereSql}`, params)
+    const total = Number(cntRows[0].c)
+    const offset = (page - 1) * pageSize
+    const [rows] = await conn.execute(
+      `SELECT id, source, module, action, level, success, message, detail,
+              project_id, batch_no, created_by, cost_ms, app_version, created_at
+         FROM \`run_log\` ${whereSql}
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?`,
+      [...params, pageSize, offset]
+    )
+    return { success: true, records: rows, total, page, pageSize }
+  } catch (err) {
+    console.error('[log:list] 数据库异常:', err)
+    return { success: false, message: '读取运行日志失败' }
+  } finally {
+    if (conn) await conn.end().catch(() => {})
+  }
+})
+
+// 渲染进程 console 上报（source=console，module=console:renderer）
+ipcMain.handle('log:console', async (_evt, { level, text }) => {
+  runLog.consoleFromRenderer(level, text)
+  return { success: true }
+})
+
 app.whenReady().then(() => {
   // 确保当前生效库存在 project 表（幂等；存量库不会走「新增连接」初始化，故此处补齐）
   ensureActiveDbTables()
@@ -1438,6 +1543,7 @@ async function ensureActiveDbTables() {
     await ensureMapDataImportTable(conn)
     await ensureCoordDataTable(conn)
     await ensureCalcResultTable(conn)
+    await ensureRunLogTable(conn)
   } catch (e) {
     console.error('[ensureActiveDbTables] 表确保失败（请检查数据库连接）：', e)
   } finally {
