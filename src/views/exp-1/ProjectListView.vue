@@ -43,7 +43,7 @@
         <thead>
           <tr>
             <th style="width: 96px">项目编号</th>
-            <th>项目名称</th>
+            <th style="width: 300px">项目名称</th>
             <th>项目地点</th>
             <th>备注</th>
             <th style="width: 140px">操作</th>
