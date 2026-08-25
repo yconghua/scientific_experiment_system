@@ -5,7 +5,7 @@
 ---
 A locally-run desktop application for scientific experiments: from **map data import → coordinate data processing → path distance calculation → result visualization**, all within a "project" unit. Built on Electron + Vue 3 + MySQL, with the Electron main process acting as the backend, connecting directly to the database – no need for a separate server deployment.
 
-![version](https://img.shields.io/badge/version-1.3.5-blue)
+![version](https://img.shields.io/badge/version-1.3.6-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![electron](https://img.shields.io/badge/Electron-31-2b2e42)
