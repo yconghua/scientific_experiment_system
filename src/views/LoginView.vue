@@ -84,9 +84,18 @@
               @keyup.enter="onSubmit"
             />
 
+            <label class="agree-row">
+              <input type="checkbox" v-model="agreed" class="agree-check" />
+              <span class="agree-text">阅读并接受
+                <span class="agree-link" @click="showTerms = true">服务条款</span>
+                和
+                <span class="agree-link" @click="showPrivacy = true">隐私协议</span>
+              </span>
+            </label>
+
             <p v-if="errorMsg" class="error-msg">{{ errorMsg }}</p>
 
-            <button class="submit-btn" type="submit" :disabled="loading">
+            <button class="submit-btn" type="submit" :disabled="loading || !agreed">
               {{ loading ? '登录中…' : '登 录' }}
             </button>
 
@@ -100,11 +109,7 @@
     <!-- 下：页脚 -->
     <footer class="login-footer">
       <div class="footer-top">
-        <button type="button" class="footer-link" @click="showTerms = true">服务条款</button>
-        <button type="button" class="footer-link" @click="showPrivacy = true">隐私协议</button>
-
         <button type="button" class="footer-link" @click="openSettings">系统设置</button>
-
       </div>
       <div class="footer-bottom">
         <p class="footer-copy">Copyright © 2025–{{ copyrightYear }} Scientific Experiment System All Rights Reserved.</p>
@@ -330,6 +335,8 @@ const username = ref('')
 const password = ref('')
 const errorMsg = ref('')
 const loading = ref(false)
+// 是否阅读并接受服务条款与隐私协议（每次启动需重新勾选）
+const agreed = ref(false)
 
 // 页脚版权年：固定起始 2025，结束取当前动态年份
 const copyrightYear = new Date().getFullYear()
@@ -607,6 +614,12 @@ const privacySections = [
 async function onSubmit() {
   errorMsg.value = ''
 
+  // 必须先阅读并接受服务条款与隐私协议
+  if (!agreed.value) {
+    errorMsg.value = '请先阅读并接受服务条款和隐私协议'
+    return
+  }
+
   // 基础空值校验
   if (!username.value.trim()) {
     errorMsg.value = '请输入账号'
@@ -840,6 +853,34 @@ async function onSubmit() {
 }
 .field-input:focus {
   border-color: #0d80e0;
+}
+.agree-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: #4e5969;
+  cursor: pointer;
+  user-select: none;
+}
+.agree-check {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: pointer;
+  accent-color: #0d80e0;
+}
+.agree-text {
+  line-height: 1.5;
+}
+.agree-link {
+  color: #0d80e0;
+  cursor: pointer;
+  text-decoration: none;
+}
+.agree-link:hover {
+  text-decoration: underline;
 }
 .error-msg {
   margin: 14px 0 0;
