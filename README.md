@@ -38,7 +38,7 @@ This system targets scientific experiments that need batch processing of "origin
 
 Go to [GitHub Releases](https://github.com/yconghua/scientific_experiment_system/releases) and download the installer for your system, then install and open it directly.
 
-- The system ships with a default database connection pre-initialized, so it **works out of the box—no database setup required**. To use your own MySQL, go to "System Settings → Switch Database" to add one (connection credentials are provided by the administrator and are not disclosed in this document).
+- The system ships with a default database connection pre-initialized, so it **works out of the box—no database setup required**. To use your own MySQL, go to "System Settings → Switch Database" to add one .
 - For first login you can use the built-in test account:
   - Account: `测试用户001`
   - Password: `123456`
