@@ -108,11 +108,13 @@
 
     <!-- 下：页脚 -->
     <footer class="login-footer">
-      <div class="footer-top">
-        <button type="button" class="footer-link" @click="openSettings">系统设置</button>
-      </div>
       <div class="footer-bottom">
-        <p class="footer-copy">Copyright © 2025–{{ copyrightYear }} Scientific Experiment System All Rights Reserved.</p>
+        <p class="footer-copy">
+          Copyright © 2025–{{ copyrightYear }} Scientific Experiment System
+          <a href="https://github.com/yconghua" target="_blank" rel="noopener noreferrer">yconghua</a>
+          All Rights Reserved.
+          <button type="button" class="footer-link" @click="openSettings">Setting</button>
+        </p>
       </div>
     </footer>
 
@@ -129,7 +131,7 @@
           <p>（2）不用联系我，直接使用这个测试账号密码登入即可；</p>
           <p>账号是测试用户001，密码是123456</p>
           <p>（3）目前系统自带有一个阿里云MySQL云数据库（不允许被删除！）；</p>
-          <p>如果您想使用自己电脑上面的MySQL数据库，可以在下方系统设置里面点击切换数据库按钮，然后添加您电脑本地MySQL数据库。您自己的数据库添加成功后，账号密码请联系管理员获取账号密码。</p>
+          <p>如果您想使用自己电脑上面的MySQL数据库，请点击登录页面下方setting，进行数据库连接配置。</p>
           <p>最后，祝您生活越快。</p>
         </div>
       </div>
@@ -933,20 +935,15 @@ async function onSubmit() {
   flex-direction: column;
   gap: 8px;
 }
-.footer-top {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 24px;
-}
 .footer-link {
   background: none;
   border: none;
   padding: 0;
-  color: #0d80e0;
-  font-size: 13px;
+  color: #8a9099;
+  font-size: 12px;
   cursor: pointer;
   text-decoration: none;
+  vertical-align: baseline;
 }
 .footer-link:hover {
   text-decoration: underline;
@@ -955,6 +952,14 @@ async function onSubmit() {
   margin: 0;
   font-size: 12px;
   color: #8a9099;
+}
+.footer-copy a {
+  color: inherit;       
+  text-decoration: none;   
+}
+.footer-copy a:hover {
+  text-decoration: underline;
+  cursor: pointer;   
 }
 
 /* 隐私协议弹窗 */
