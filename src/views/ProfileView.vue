@@ -171,6 +171,15 @@
 
           <div class="table-scroll" v-if="logRecords.length">
             <table class="data-table log-table">
+              <colgroup>
+                <col style="width: 12%;">   <!-- 时间 -->
+                <col style="width: 10%;">    <!-- 来源 -->
+                <col style="width: 12%;">    <!-- 级别 -->
+                <col style="width: 21%;">   <!-- 模块/动作 -->
+                <col style="width: 27%;">   <!-- 消息 -->
+                <col style="width: 9%;">   <!-- 用户 -->
+                <col style="width: 9%;">   <!-- 耗时 -->
+              </colgroup>
               <thead>
                 <tr>
                   <th>时间</th>
@@ -1292,5 +1301,14 @@ onMounted(async () => {
   word-break: break-all;
   font-family: Consolas, Monaco, monospace;
   font-size: 12px;
+}
+.log-table {
+  table-layout: fixed;
+  width: 100%;
+}
+.log-table td,
+.log-table th {
+  word-break: break-word;
+  white-space: normal;
 }
 </style>
