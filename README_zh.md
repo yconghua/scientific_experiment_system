@@ -4,7 +4,7 @@
 
 基于 Electron + Vue 3 + MySQL 构建；Electron 主进程即后端，直接连接数据库，无需额外部署服务器。
 
-![version](https://img.shields.io/badge/version-1.3.7-blue)
+![version](https://img.shields.io/badge/version-1.3.9-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![electron](https://img.shields.io/badge/Electron-31-2b2e42)

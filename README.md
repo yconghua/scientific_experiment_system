@@ -4,7 +4,7 @@ A locally-run desktop application for scientific experiments that calculates **t
 
 Built on Electron + Vue 3 + MySQL; the Electron main process acts as the backend, connecting directly to the database with no separate server deployment required.
 
-![version](https://img.shields.io/badge/version-1.3.7-blue)
+![version](https://img.shields.io/badge/version-1.3.9-blue)
 ![license](https://img.shields.io/badge/license-MIT-green)
 ![platform](https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey)
 ![electron](https://img.shields.io/badge/Electron-31-2b2e42)
