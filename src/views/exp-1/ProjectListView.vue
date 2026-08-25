@@ -392,6 +392,7 @@ onMounted(() => {
   display: flex;
   flex-wrap: nowrap;
   align-items: flex-end;
+  justify-content: space-between;
   gap: 14px;
   margin-bottom: 16px;
 }
@@ -407,7 +408,7 @@ onMounted(() => {
 .filter-input,
 .filter-select {
   height: 34px;
-  width: 170px;
+  width: 165px;
   padding: 0 10px;
   border: 1px solid #d7dce3;
   border-radius: 6px;
