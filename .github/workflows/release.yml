@@ -21,8 +21,8 @@ jobs:
         # 只需某个平台时删掉其余行即可（如只打包 Windows 只留 windows-latest）
         os:
           - windows-latest   # 产出 NSIS 安装包 .exe
-          - macos-latest     # 产出 .dmg / .zip
-          - ubuntu-latest    # 产出 AppImage / .deb
+          #- macos-latest     # 产出 .dmg / .zip
+          #- ubuntu-latest    # 产出 AppImage / .deb
 
     steps:
       - name: 检出代码
