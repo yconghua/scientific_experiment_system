@@ -45,7 +45,7 @@ Go to [GitHub Releases](https://github.com/yconghua/scientific_experiment_system
 
 ### Option 2: Run from Source (for developers)
 
-Requirements: Node.js 18+ (verified on 22.x), MySQL 5.7+ / 8.x, Windows (primary) / macOS / Linux.
+Requirements: Node.js 18+ (verified on 22.x), MySQL 5.7+ / 8.x, Windows (primary) / macOS / Linux
 
 ```bash
 npm install      # install dependencies
